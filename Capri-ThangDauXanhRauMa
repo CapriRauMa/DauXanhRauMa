@@ -1,4 +1,4 @@
---// Capri Menu - Horizontal UI & Locked Aimbot Camera to Movable FOV Center
+--// Capri Menu - Ultra-Small Close-Range Hitbox (Avatar Size)
 --// Optimized for Delta Executor
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -12,33 +12,15 @@ if CoreGui:FindFirstChild("CapriMenuGui") then
     CoreGui.CapriMenuGui:Destroy() 
 end
 
---// Antiban & Bypass cơ bản khi vừa Execute
-pcall(function()
-    local mt = getrawmetatable(game)
-    setreadonly(mt, false)
-    local oldNamecall = mt.__namecall
-    mt.__namecall = newcclosure(function(self, ...)
-        local method = getnamecallmethod()
-        if method == "Kick" or method == "kick" then
-            return nil
-        end
-        return oldNamecall(self, ...)
-    end)
-    setreadonly(mt, true)
-end)
-
 getgenv().Capri = {
     KA = false,
     AB = false,
     ESP = false,
-    HB = false,
-    SuperHB = false,
-    UltraHB = false,
+    HB = false,        -- Nút bật Hitbox co giãn tự động
     UnlockFOV = false,
     
-    HBSize = 15,       
-    SuperHBSize = 40,  
-    UltraHBSize = 80,  
+    MinHBSize = 4,     -- Kích thước nhỏ nhất khi áp sát (Chỉ to hơn nhân vật gốc một chút xíu)
+    MaxHBSize = 40,    -- Kích thước lớn nhất khi ở xa (Super)
     
     FOV = 150,         
     MaxDist = 420,     
@@ -61,18 +43,19 @@ if not success then
     GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
--- Nút ẩn/hiện Menu (Gọn gàng góc trên bên trái)
+-- Nút ẩn/hiện Menu dạng ImageButton với Icon tùy chỉnh (2075786475)
 local Toggle = Instance.new("ImageButton", GUI)
 Toggle.Size = UDim2.new(0, 45, 0, 45)
 Toggle.Position = UDim2.new(0.02, 0, 0.12, 0)
 Toggle.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Toggle.Image = "rbxassetid://2075786475"
 Toggle.Draggable = true
 Toggle.Active = true
 Instance.new("UICorner", Toggle).CornerRadius = UDim.new(1, 0)
 
--- Khung Menu Chính: Dạng chữ nhật ngang, kích thước nhỏ gọn không che nút kỹ năng
+-- Khung Menu Chính: Dạng hình chữ nhật ngang (Landscape) nhỏ gọn
 local Main = Instance.new("Frame", GUI)
-Main.Size = UDim2.new(0, 400, 0, 190)
+Main.Size = UDim2.new(0, 420, 0, 190)
 Main.Position = UDim2.new(0.12, 0, 0.20, 0)
 Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 Main.Visible = false
@@ -82,14 +65,25 @@ Main.BorderColor3 = Color3.fromRGB(0, 255, 128)
 Main.BorderSizePixel = 2
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
 
--- Tiêu đề Menu bên trái
+-- Hình nền Menu chính với ID tùy chỉnh (2075594493)
+local BGImage = Instance.new("ImageLabel", Main)
+BGImage.Size = UDim2.new(1, 0, 1, 0)
+BGImage.BackgroundTransparency = 1
+BGImage.Image = "rbxassetid://2075594493"
+BGImage.ImageTransparency = 0.4
+BGImage.ZIndex = 0
+Instance.new("UICorner", BGImage).CornerRadius = UDim.new(0, 10)
+
+-- Tiêu đề Menu nằm bên trái
 local Title = Instance.new("TextLabel", Main)
 Title.Size = UDim2.new(0, 110, 1, 0)
 Title.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+Title.BackgroundTransparency = 0.3
 Title.Text = "CAPRI\nMENU"
 Title.TextColor3 = Color3.fromRGB(0, 255, 128)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 18
+Title.ZIndex = 1
 Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
 
 -- Label trạng thái Antiban
@@ -101,18 +95,58 @@ AntibanLabel.Text = "Antiban: ON"
 AntibanLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
 AntibanLabel.Font = Enum.Font.SourceSansBold
 AntibanLabel.TextSize = 11
+AntibanLabel.ZIndex = 1
 
--- Khu vực chứa các nút chức năng dạng lưới ngang
+-- Khu vực chứa các nút chức năng dạng lưới ngang (ScrollingFrame)
 local Container = Instance.new("ScrollingFrame", Main)
-Container.Size = UDim2.new(0, 275, 0, 170)
-Container.Position = UDim2.new(0, 118, 0, 10)
+Container.Size = UDim2.new(0, 280, 0, 160)
+Container.Position = UDim2.new(0, 122, 0, 10)
 Container.BackgroundTransparency = 1
-Container.CanvasSize = UDim2.new(0, 0, 0, 260)
+Container.CanvasSize = UDim2.new(0, 0, 0, 220)
 Container.ScrollBarThickness = 3
+Container.ZIndex = 1
 
 local UIgrid = Instance.new("UIGridLayout", Container)
-UIgrid.CellSize = UDim2.new(0, 130, 0, 26)
+UIgrid.CellSize = UDim2.new(0, 132, 0, 26)
 UIgrid.CellPadding = UDim2.new(0, 6, 0, 6)
+
+-- Nút kéo phóng to/thu nhỏ (Resize Handle) ở góc dưới phải Menu
+local ResizeButton = Instance.new("TextButton", Main)
+ResizeButton.Size = UDim2.new(0, 22, 0, 22)
+ResizeButton.AnchorPoint = Vector2.new(1, 1)
+ResizeButton.Position = UDim2.new(1, -2, 1, -2)
+ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 255, 128)
+ResizeButton.Text = "↗"
+ResizeButton.TextColor3 = Color3.fromRGB(20, 20, 25)
+ResizeButton.Font = Enum.Font.SourceSansBold
+ResizeButton.TextSize = 12
+ResizeButton.ZIndex = 2
+Instance.new("UICorner", ResizeButton).CornerRadius = UDim.new(0, 4)
+
+local resizing = false
+ResizeButton.MouseButton1Down:Connect(function()
+    resizing = true
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local currentPos = input.Position
+        local deltaX = currentPos.X - Main.AbsolutePosition.X
+        local deltaY = currentPos.Y - Main.AbsolutePosition.Y
+        
+        local newWidth = math.clamp(deltaX, 350, 650)
+        local newHeight = math.clamp(deltaY, 160, 350)
+        
+        Main.Size = UDim2.new(0, newWidth, 0, newHeight)
+        Container.Size = UDim2.new(0, newWidth - 130, 0, newHeight - 30)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        resizing = false
+    end
+end)
 
 -- Hàm khởi tạo nút bấm
 local function addBtn(name, key)
@@ -122,6 +156,7 @@ local function addBtn(name, key)
     b.TextColor3 = Color3.fromRGB(255, 50, 50)
     b.Font = Enum.Font.SourceSansSemibold
     b.TextSize = 11
+    b.ZIndex = 1
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
 
     b.MouseButton1Click:Connect(function()
@@ -136,16 +171,11 @@ end
 addBtn("Kill Aura", "KA")
 addBtn("Aimbot Body", "AB")
 addBtn("ESP + Distance", "ESP")
-addBtn("Hitbox Normal", "HB")
-addBtn("Super Hitbox", "SuperHB")
-addBtn("Ultra Hitbox", "UltraHB")
+addBtn("Hitbox", "HB")
 addBtn("Unlock FOV", "UnlockFOV")
 
-local isOpen = false
 Toggle.MouseButton1Click:Connect(function()
-    isOpen = not isOpen
-    Main.Visible = isOpen
-    Toggle.BackgroundColor3 = isOpen and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
+    Main.Visible = not Main.Visible
 end)
 
 --// Visuals & Logic
@@ -178,8 +208,10 @@ DragButton.MouseButton1Down:Connect(function()
     end
 end)
 
-UserInputService.InputEnded:Connect(function()
-    draggingFOV = false
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingFOV = false
+    end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
@@ -237,46 +269,40 @@ RunService.RenderStepped:Connect(function()
     FOVCircle.Visible = C.AB
     FOVCircle.Position = Vector2.new(C.PosX, C.PosY)
 
-    -- Aimbot Logic: Khóa góc nhìn camera cố định chuẩn tuyệt đối vào tâm vòng tròn tùy chỉnh
+    -- Aimbot Logic
     if C.AB then
         local targetChar = getTarget()
         if targetChar then
             local bodyPart = getBodyPart(targetChar)
             if bodyPart then
                 local bodyPos = bodyPart.Position
+                local camPos = Camera.CFrame.Position
+                local baseCFrame = CFrame.new(camPos, bodyPos)
                 
-                -- Tính toán độ lệch giữa tâm màn hình thực tế và tâm vòng tròn (PosX, PosY)
                 local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                 local customCenter = Vector2.new(C.PosX, C.PosY)
                 local offset = customCenter - screenCenter
                 
-                -- Xoay camera hướng thẳng tới mục tiêu và bù trừ tọa độ tâm
-                LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(LocalPlayer.Character.PrimaryPart.Position, Vector3.new(bodyPos.X, LocalPlayer.Character.PrimaryPart.Position.Y, bodyPos.Z)))
-                
-                local camPos = Camera.CFrame.Position
-                local targetCamCF = CFrame.new(camPos, bodyPos)
-                -- Áp dụng phép xoay bù trừ để mục tiêu khóa khớp ngay tại tâm tùy chỉnh
-                Camera.CFrame = targetCamCF * CFrame.Angles(math.rad(-offset.Y * 0.05), math.rad(-offset.X * 0.05), 0)
+                Camera.CFrame = baseCFrame * CFrame.Angles(math.rad(-offset.Y * 0.08), math.rad(-offset.X * 0.08), 0)
             end
         end
     end
 
-    -- Hitbox Logic
+    -- Hitbox Logic: Co giãn mượt mà từ Min (4) khi áp sát đến Max (40) khi ở xa
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local hrp = p.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                if C.UltraHB then
-                    hrp.Size = Vector3.new(C.UltraHBSize, C.UltraHBSize, C.UltraHBSize)
-                    hrp.Transparency = 0.3
-                    hrp.CanCollide = false
-                elseif C.SuperHB then
-                    hrp.Size = Vector3.new(C.SuperHBSize, C.SuperHBSize, C.SuperHBSize)
+                if C.HB then
+                    local distToMe = myRoot and (myRoot.Position - hrp.Position).Magnitude or 999
+                    
+                    local minD, maxD = 4, 30
+                    local alpha = math.clamp((distToMe - minD) / (maxD - minD), 0, 1)
+                    local calculatedSize = C.MinHBSize + (C.MaxHBSize - C.MinHBSize) * alpha
+                    
+                    hrp.Size = Vector3.new(calculatedSize, calculatedSize, calculatedSize)
                     hrp.Transparency = 0.4
-                    hrp.CanCollide = false
-                elseif C.HB then
-                    hrp.Size = Vector3.new(C.HBSize, C.HBSize, C.HBSize)
-                    hrp.Transparency = 0.5
                     hrp.CanCollide = false
                 else
                     hrp.Size = Vector3.new(2, 2, 1)
@@ -301,6 +327,7 @@ RunService.RenderStepped:Connect(function()
                             local hum, hrp = obj:FindFirstChildOfClass("Humanoid"), obj:FindFirstChild("HumanoidRootPart")
                             if hum and hrp and hum.Health > 0 and (root.Position - hrp.Position).Magnitude <= 100 then
                                 local isPlayer = Players:GetPlayerFromCharacter(obj) ~= nil
+                                local isPlayer = Players:GetPlayerFromCharacter(obj) ~= nil
                                 if not isPlayer then
                                     hum:TakeDamage(3387500)
                                 else
@@ -324,7 +351,6 @@ RunService.RenderStepped:Connect(function()
 
     -- ESP Render Logic
     if C.ESP then
-        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         local activeDrawings = {}
 
         for _, p in ipairs(Players:GetPlayers()) do
@@ -369,7 +395,7 @@ RunService.RenderStepped:Connect(function()
                             distText = " [" .. distance .. "m]"
                         end
 
-                        drawingObj.name.Text = p.Name .. " [" .. math.floor(hum.Health) .. " HP]" .. distText
+                        drawingObj.name.Text = p.Name .. " [" .. math.floor(hum.Health) + 0 .. " HP]" .. distText
                         drawingObj.name.Position = Vector2.new(pos.X, pos.Y - size.Y / 2 - 20)
                         drawingObj.name.Visible = true
                         
