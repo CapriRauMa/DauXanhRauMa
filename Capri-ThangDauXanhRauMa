@@ -1,0 +1,404 @@
+--// Capri Menu - Horizontal UI & Locked Aimbot Camera to Movable FOV Center
+--// Optimized for Delta Executor
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Clear menu cũ nếu đang chạy
+if CoreGui:FindFirstChild("CapriMenuGui") then 
+    CoreGui.CapriMenuGui:Destroy() 
+end
+
+--// Antiban & Bypass cơ bản khi vừa Execute
+pcall(function()
+    local mt = getrawmetatable(game)
+    setreadonly(mt, false)
+    local oldNamecall = mt.__namecall
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if method == "Kick" or method == "kick" then
+            return nil
+        end
+        return oldNamecall(self, ...)
+    end)
+    setreadonly(mt, true)
+end)
+
+getgenv().Capri = {
+    KA = false,
+    AB = false,
+    ESP = false,
+    HB = false,
+    SuperHB = false,
+    UltraHB = false,
+    UnlockFOV = false,
+    
+    HBSize = 15,       
+    SuperHBSize = 40,  
+    UltraHBSize = 80,  
+    
+    FOV = 150,         
+    MaxDist = 420,     
+    
+    PosX = Camera.ViewportSize.X / 2,
+    PosY = Camera.ViewportSize.Y / 2,
+    
+    PlayerTimers = {}
+}
+
+--// GUI Setup
+local GUI = Instance.new("ScreenGui")
+GUI.Name = "CapriMenuGui"
+GUI.ResetOnSpawn = false
+
+local success = pcall(function()
+    GUI.Parent = CoreGui
+end)
+if not success then
+    GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Nút ẩn/hiện Menu (Gọn gàng góc trên bên trái)
+local Toggle = Instance.new("ImageButton", GUI)
+Toggle.Size = UDim2.new(0, 45, 0, 45)
+Toggle.Position = UDim2.new(0.02, 0, 0.12, 0)
+Toggle.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Toggle.Draggable = true
+Toggle.Active = true
+Instance.new("UICorner", Toggle).CornerRadius = UDim.new(1, 0)
+
+-- Khung Menu Chính: Dạng chữ nhật ngang, kích thước nhỏ gọn không che nút kỹ năng
+local Main = Instance.new("Frame", GUI)
+Main.Size = UDim2.new(0, 400, 0, 190)
+Main.Position = UDim2.new(0.12, 0, 0.20, 0)
+Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+Main.Visible = false
+Main.Draggable = true
+Main.Active = true
+Main.BorderColor3 = Color3.fromRGB(0, 255, 128)
+Main.BorderSizePixel = 2
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+
+-- Tiêu đề Menu bên trái
+local Title = Instance.new("TextLabel", Main)
+Title.Size = UDim2.new(0, 110, 1, 0)
+Title.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+Title.Text = "CAPRI\nMENU"
+Title.TextColor3 = Color3.fromRGB(0, 255, 128)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
+
+-- Label trạng thái Antiban
+local AntibanLabel = Instance.new("TextLabel", Main)
+AntibanLabel.Size = UDim2.new(0, 110, 0, 25)
+AntibanLabel.Position = UDim2.new(0, 0, 0.75, 0)
+AntibanLabel.BackgroundTransparency = 1
+AntibanLabel.Text = "Antiban: ON"
+AntibanLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
+AntibanLabel.Font = Enum.Font.SourceSansBold
+AntibanLabel.TextSize = 11
+
+-- Khu vực chứa các nút chức năng dạng lưới ngang
+local Container = Instance.new("ScrollingFrame", Main)
+Container.Size = UDim2.new(0, 275, 0, 170)
+Container.Position = UDim2.new(0, 118, 0, 10)
+Container.BackgroundTransparency = 1
+Container.CanvasSize = UDim2.new(0, 0, 0, 260)
+Container.ScrollBarThickness = 3
+
+local UIgrid = Instance.new("UIGridLayout", Container)
+UIgrid.CellSize = UDim2.new(0, 130, 0, 26)
+UIgrid.CellPadding = UDim2.new(0, 6, 0, 6)
+
+-- Hàm khởi tạo nút bấm
+local function addBtn(name, key)
+    local b = Instance.new("TextButton", Container)
+    b.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    b.Text = name .. ": OFF"
+    b.TextColor3 = Color3.fromRGB(255, 50, 50)
+    b.Font = Enum.Font.SourceSansSemibold
+    b.TextSize = 11
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+
+    b.MouseButton1Click:Connect(function()
+        getgenv().Capri[key] = not getgenv().Capri[key]
+        local state = getgenv().Capri[key]
+        b.Text = name .. (state and ": ON" or ": OFF")
+        b.TextColor3 = state and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
+        b.BackgroundColor3 = state and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
+    end)
+end
+
+addBtn("Kill Aura", "KA")
+addBtn("Aimbot Body", "AB")
+addBtn("ESP + Distance", "ESP")
+addBtn("Hitbox Normal", "HB")
+addBtn("Super Hitbox", "SuperHB")
+addBtn("Ultra Hitbox", "UltraHB")
+addBtn("Unlock FOV", "UnlockFOV")
+
+local isOpen = false
+Toggle.MouseButton1Click:Connect(function()
+    isOpen = not isOpen
+    Main.Visible = isOpen
+    Toggle.BackgroundColor3 = isOpen and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
+end)
+
+--// Visuals & Logic
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Radius = getgenv().Capri.FOV
+FOVCircle.Filled = false
+FOVCircle.Color = Color3.fromRGB(0, 255, 128)
+FOVCircle.Thickness = 1.5
+FOVCircle.Transparency = 0.8
+
+-- Nút kéo thả tâm xuất hiện khi bật Unlock FOV
+local DragButton = Instance.new("TextButton", GUI)
+DragButton.Size = UDim2.new(0, 45, 0, 45)
+DragButton.AnchorPoint = Vector2.new(0.5, 0.5)
+DragButton.Position = UDim2.new(0.5, 0, 0.5, 0)
+DragButton.BackgroundColor3 = Color3.fromRGB(0, 255, 128)
+DragButton.BackgroundTransparency = 0.4
+DragButton.Text = "TÂM"
+DragButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+DragButton.Font = Enum.Font.SourceSansBold
+DragButton.TextSize = 14
+DragButton.Visible = false
+Instance.new("UICorner", DragButton).CornerRadius = UDim.new(1, 0)
+
+local draggingFOV = false
+DragButton.MouseButton1Down:Connect(function()
+    if getgenv().Capri.UnlockFOV then
+        draggingFOV = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function()
+    draggingFOV = false
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingFOV and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local mousePos = input.Position
+        getgenv().Capri.PosX = mousePos.X
+        getgenv().Capri.PosY = mousePos.Y
+        DragButton.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
+    end
+end)
+
+local function getBodyPart(char)
+    return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+end
+
+local function getTarget()
+    local target, shortest = nil, getgenv().Capri.FOV
+    local C = getgenv().Capri
+    local center = Vector2.new(C.PosX, C.PosY)
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            local bodyPart = getBodyPart(p.Character)
+            local dist = (myRoot.Position - p.Character.HumanoidRootPart.Position).Magnitude
+            
+            if hum and hum.Health > 0 and bodyPart and dist <= C.MaxDist then
+                local pos, onScreen = Camera:WorldToViewportPoint(bodyPart.Position)
+                if onScreen then
+                    local screenDist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                    if screenDist < shortest then
+                        shortest = screenDist
+                        target = p.Character
+                    end
+                end
+            end
+        end
+    end
+    return target
+end
+
+local lastAuraTick = 0
+local espDrawings = {}
+
+RunService.RenderStepped:Connect(function()
+    local C = getgenv().Capri
+    
+    DragButton.Visible = C.UnlockFOV
+    if not C.UnlockFOV and not draggingFOV then
+        DragButton.Position = UDim2.new(0, C.PosX, 0, C.PosY)
+    end
+
+    FOVCircle.Visible = C.AB
+    FOVCircle.Position = Vector2.new(C.PosX, C.PosY)
+
+    -- Aimbot Logic: Khóa góc nhìn camera cố định chuẩn tuyệt đối vào tâm vòng tròn tùy chỉnh
+    if C.AB then
+        local targetChar = getTarget()
+        if targetChar then
+            local bodyPart = getBodyPart(targetChar)
+            if bodyPart then
+                local bodyPos = bodyPart.Position
+                
+                -- Tính toán độ lệch giữa tâm màn hình thực tế và tâm vòng tròn (PosX, PosY)
+                local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local customCenter = Vector2.new(C.PosX, C.PosY)
+                local offset = customCenter - screenCenter
+                
+                -- Xoay camera hướng thẳng tới mục tiêu và bù trừ tọa độ tâm
+                LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(LocalPlayer.Character.PrimaryPart.Position, Vector3.new(bodyPos.X, LocalPlayer.Character.PrimaryPart.Position.Y, bodyPos.Z)))
+                
+                local camPos = Camera.CFrame.Position
+                local targetCamCF = CFrame.new(camPos, bodyPos)
+                -- Áp dụng phép xoay bù trừ để mục tiêu khóa khớp ngay tại tâm tùy chỉnh
+                Camera.CFrame = targetCamCF * CFrame.Angles(math.rad(-offset.Y * 0.05), math.rad(-offset.X * 0.05), 0)
+            end
+        end
+    end
+
+    -- Hitbox Logic
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                if C.UltraHB then
+                    hrp.Size = Vector3.new(C.UltraHBSize, C.UltraHBSize, C.UltraHBSize)
+                    hrp.Transparency = 0.3
+                    hrp.CanCollide = false
+                elseif C.SuperHB then
+                    hrp.Size = Vector3.new(C.SuperHBSize, C.SuperHBSize, C.SuperHBSize)
+                    hrp.Transparency = 0.4
+                    hrp.CanCollide = false
+                elseif C.HB then
+                    hrp.Size = Vector3.new(C.HBSize, C.HBSize, C.HBSize)
+                    hrp.Transparency = 0.5
+                    hrp.CanCollide = false
+                else
+                    hrp.Size = Vector3.new(2, 2, 1)
+                    hrp.Transparency = 1
+                    hrp.CanCollide = false
+                end
+            end
+        end
+    end
+
+    -- Kill Aura Logic
+    if C.KA then
+        if tick() - lastAuraTick >= 2.0 then
+            lastAuraTick = tick()
+            pcall(function()
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local searchFolder = workspace:FindFirstChild("Enemies") or workspace
+                    for _, obj in ipairs(searchFolder:GetDescendants()) do
+                        if obj:IsA("Model") and obj ~= char then
+                            local hum, hrp = obj:FindFirstChildOfClass("Humanoid"), obj:FindFirstChild("HumanoidRootPart")
+                            if hum and hrp and hum.Health > 0 and (root.Position - hrp.Position).Magnitude <= 100 then
+                                local isPlayer = Players:GetPlayerFromCharacter(obj) ~= nil
+                                if not isPlayer then
+                                    hum:TakeDamage(3387500)
+                                else
+                                    local pName = obj.Name
+                                    if not C.PlayerTimers[pName] then
+                                        C.PlayerTimers[pName] = tick()
+                                    elseif tick() - C.PlayerTimers[pName] >= 1.0 then
+                                        hum:TakeDamage(50)
+                                        C.PlayerTimers[pName] = tick()
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    else
+        C.PlayerTimers = {}
+    end
+
+    -- ESP Render Logic
+    if C.ESP then
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local activeDrawings = {}
+
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                local hrp = p.Character.HumanoidRootPart
+                
+                if hum and hum.Health > 0 then
+                    local drawingObj = espDrawings[p]
+                    if not drawingObj then
+                        local box = Drawing.new("Square")
+                        box.Color = Color3.fromRGB(0, 255, 128)
+                        box.Thickness = 1.5
+                        box.Filled = false
+                        
+                        local nameTag = Drawing.new("Text")
+                        nameTag.Color = Color3.fromRGB(255, 255, 255)
+                        nameTag.Size = 14
+                        nameTag.Center = true
+                        nameTag.Outline = true
+                        
+                        local line = Drawing.new("Line")
+                        line.Color = Color3.fromRGB(0, 255, 128)
+                        line.Thickness = 1
+                        line.Transparency = 0.7
+                        
+                        drawingObj = {box = box, name = nameTag, line = line}
+                        espDrawings[p] = drawingObj
+                    end
+                    
+                    activeDrawings[p] = true
+                    local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                    if onScreen then
+                        local size = Vector2.new(2500 / pos.Z, 3500 / pos.Z)
+                        drawingObj.box.Size = size
+                        drawingObj.box.Position = Vector2.new(pos.X - size.X / 2, pos.Y - size.Y / 2)
+                        drawingObj.box.Visible = true
+                        
+                        local distText = ""
+                        if myRoot then
+                            local distance = math.floor((myRoot.Position - hrp.Position).Magnitude)
+                            distText = " [" .. distance .. "m]"
+                        end
+
+                        drawingObj.name.Text = p.Name .. " [" .. math.floor(hum.Health) .. " HP]" .. distText
+                        drawingObj.name.Position = Vector2.new(pos.X, pos.Y - size.Y / 2 - 20)
+                        drawingObj.name.Visible = true
+                        
+                        drawingObj.line.From = Vector2.new(C.PosX, C.PosY)
+                        drawingObj.line.To = Vector2.new(pos.X, pos.Y)
+                        drawingObj.line.Visible = true
+                    else
+                        drawingObj.box.Visible = false
+                        drawingObj.name.Visible = false
+                        drawingObj.line.Visible = false
+                    end
+                end
+            end
+        end
+
+        for p, obj in pairs(espDrawings) do
+            if not activeDrawings[p] then
+                obj.box:Remove()
+                obj.name:Remove()
+                obj.line:Remove()
+                espDrawings[p] = nil
+            end
+        end
+    else
+        for _, obj in pairs(espDrawings) do
+            obj.box:Remove()
+            obj.name:Remove()
+            obj.line:Remove()
+        end
+        espDrawings = {}
+    end
+end)
