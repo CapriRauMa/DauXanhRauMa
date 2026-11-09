@@ -1,4 +1,4 @@
---// Capri Menu - Integrated Dynamic Hitbox in PVP Tab & Full Features
+--// Capri Menu - Silent Player with FOV Check & Full Features
 --// Optimized for Delta Executor
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -17,7 +17,7 @@ end
 getgenv().Capri = {
     KA = false,
     ESP = false,
-    HB = false,                -- Hitbox co giãn động theo khoảng cách (Tab PVP)
+    HB = false,                -- Hitbox thường (Tab PVP)
     SuperHB = false,           -- Hitbox Xe Tải cố định mức to nhất (Tab Siêu Bá Khí)
     CamLock_Player = false,
     SilentAim_Player = false,
@@ -31,8 +31,7 @@ getgenv().Capri = {
     NormalZone_Active = true,  
     SuperZone_Active = false,  
     
-    MinHBSize = 4,     -- Kích thước nhỏ nhất khi áp sát cho Hitbox PVP
-    MaxHBSize = 40,    -- Kích thước lớn nhất khi ở xa cho cả Hitbox PVP và Hitbox Xe Tải
+    MaxHBSize = 40,    -- Cố định kích thước siêu to ở mức tối đa
     MaxDist = 3000,    -- Tầm quét 3000m
     
     FOV = 250,         
@@ -506,14 +505,14 @@ AimBtn.MouseButton1Click:Connect(function()
     AimBtn.BackgroundTransparency = getgenv().Capri.SilentAim_Player and 0.2 or 0.5
 end)
 
---// Target Selector Engine (Tối ưu tìm kiếm Player & NPC/Enemies trong bán kính 3000m)
+--// Target Selector Engine (Chỉ aim mục tiêu nằm TRONG vòng tròn FOV)
 task.spawn(function()
     while task.wait(0.1) do
         local C = getgenv().Capri
         local currentFOV = C.SuperZone_Active and 500 or 250
         C.FOV = currentFOV
         
-        local best, shortest = nil, 3000 
+        local best, shortest = nil, C.FOV 
         local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         
         if root then
@@ -540,16 +539,28 @@ task.spawn(function()
                 end
             end
             
+            local circleCenter = Vector2.new(
+                (C.ShowZone and customPosX) or (Camera.ViewportSize.X / 2),
+                (C.ShowZone and customPosY) or (Camera.ViewportSize.Y / 2)
+            )
+            
             for _, char in pairs(potential) do
                 local hPart = char:FindFirstChild("HumanoidRootPart")
                 local hum = char:FindFirstChild("Humanoid")
                 if hPart and hum and hum.Health > 0 then
                     local mag = (hPart.Position - root.Position).Magnitude
-                    if mag < shortest then
+                    if mag < C.MaxDist then
                         local isNPC = not Players:GetPlayerFromCharacter(char)
                         if (isNPC and C.SilentAim_NPC) or (not isNPC and (C.SilentAim_Player or C.CamLock_Player)) then
-                            shortest = mag
-                            best = hPart
+                            -- Kiểm tra xem mục tiêu có nằm TRONG vòng tròn FOV không
+                            local screenPos, onScreen = Camera:WorldToViewportPoint(hPart.Position)
+                            if onScreen then
+                                local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - circleCenter).Magnitude
+                                if screenDist <= C.FOV and screenDist < shortest then
+                                    shortest = screenDist
+                                    best = hPart
+                                end
+                            end
                         end
                     end
                 end
@@ -571,7 +582,7 @@ task.spawn(function()
     end
 end)
 
--- Silent Aim Hook (Hỗ trợ Silent Aim cho cả Player và NPC)
+-- Silent Aim Hook (Hỗ trợ Silent Aim cho cả Player và NPC nằm trong FOV)
 local old
 old = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
