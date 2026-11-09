@@ -1,4 +1,4 @@
---// Capri Menu - Silent Player with FOV Check & Full Features
+--// Capri Menu - Distance-Based Hitbox Optimization (Render limit at 600m) & Full Features
 --// Optimized for Delta Executor
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -17,7 +17,7 @@ end
 getgenv().Capri = {
     KA = false,
     ESP = false,
-    HB = false,                -- Hitbox thường (Tab PVP)
+    HB = false,                -- Hitbox co giãn động theo khoảng cách (Tab PVP)
     SuperHB = false,           -- Hitbox Xe Tải cố định mức to nhất (Tab Siêu Bá Khí)
     CamLock_Player = false,
     SilentAim_Player = false,
@@ -31,7 +31,9 @@ getgenv().Capri = {
     NormalZone_Active = true,  
     SuperZone_Active = false,  
     
-    MaxHBSize = 40,    -- Cố định kích thước siêu to ở mức tối đa
+    MinHBSize = 4,     -- Kích thước nhỏ nhất khi áp sát cho Hitbox PVP
+    MaxHBSize = 40,    -- Kích thước lớn nhất khi ở xa cho cả Hitbox PVP và Hitbox Xe Tải
+    RenderDist = 600,  -- Cự ly tối đa để hiển thị kích thước hitbox (trên 600m sẽ ẩn để chống lag)
     MaxDist = 3000,    -- Tầm quét 3000m
     
     FOV = 250,         
@@ -552,7 +554,6 @@ task.spawn(function()
                     if mag < C.MaxDist then
                         local isNPC = not Players:GetPlayerFromCharacter(char)
                         if (isNPC and C.SilentAim_NPC) or (not isNPC and (C.SilentAim_Player or C.CamLock_Player)) then
-                            -- Kiểm tra xem mục tiêu có nằm TRONG vòng tròn FOV không
                             local screenPos, onScreen = Camera:WorldToViewportPoint(hPart.Position)
                             if onScreen then
                                 local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - circleCenter).Magnitude
@@ -634,26 +635,39 @@ RunService.RenderStepped:Connect(function()
         Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, C.CurrentTarget.Position), C.Smoothness)
     end
 
-    -- Hitbox Logic (Tab PVP: Hitbox co giãn động theo khoảng cách | Tab Siêu Bá Khí: Hitbox Xe Tải cố định mức to nhất)
+    -- Hitbox Logic: Tự động ẩn kích thước khi ở xa > 600m để chống lag nhưng vẫn giữ tác dụng
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local hrp = p.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
+                local distToMe = myRoot and (myRoot.Position - hrp.Position).Magnitude or 999
+                
                 if C.SuperHB then
-                    -- Hitbox Xe Tải cố định mức to nhất (40x40x40) ở Siêu Bá Khí
-                    hrp.Size = Vector3.new(C.MaxHBSize, C.MaxHBSize, C.MaxHBSize)
-                    hrp.Transparency = 0.4
-                    hrp.CanCollide = false
+                    -- Hitbox Xe Tải ở Siêu Bá Khí: Chỉ hiển thị kích thước siêu to khi <= 600m, xa hơn sẽ thu về chuẩn để chống lag
+                    if distToMe <= C.RenderDist then
+                        hrp.Size = Vector3.new(C.MaxHBSize, C.MaxHBSize, C.MaxHBSize)
+                        hrp.Transparency = 0.4
+                        hrp.CanCollide = false
+                    else
+                        hrp.Size = Vector3.new(2, 2, 1)
+                        hrp.Transparency = 1
+                        hrp.CanCollide = false
+                    end
                 elseif C.HB then
-                    -- Hitbox co giãn động mượt mà theo khoảng cách (Tab PVP)
-                    local distToMe = myRoot and (myRoot.Position - hrp.Position).Magnitude or 999
-                    local minD, maxD = 4, 30
-                    local alpha = math.clamp((distToMe - minD) / (maxD - minD), 0, 1)
-                    local calculatedSize = C.MinHBSize + (C.MaxHBSize - C.MinHBSize) * alpha
-                    
-                    hrp.Size = Vector3.new(calculatedSize, calculatedSize, calculatedSize)
-                    hrp.Transparency = 0.4
-                    hrp.CanCollide = false
+                    -- Hitbox co giãn động ở Tab PVP: Chỉ hiển thị khi <= 600m, xa hơn sẽ ẩn
+                    if distToMe <= C.RenderDist then
+                        local minD, maxD = 4, 30
+                        local alpha = math.clamp((distToMe - minD) / (maxD - minD), 0, 1)
+                        local calculatedSize = C.MinHBSize + (C.MaxHBSize - C.MinHBSize) * alpha
+                        
+                        hrp.Size = Vector3.new(calculatedSize, calculatedSize, calculatedSize)
+                        hrp.Transparency = 0.4
+                        hrp.CanCollide = false
+                    else
+                        hrp.Size = Vector3.new(2, 2, 1)
+                        hrp.Transparency = 1
+                        hrp.CanCollide = false
+                    end
                 else
                     hrp.Size = Vector3.new(2, 2, 1)
                     hrp.Transparency = 1
