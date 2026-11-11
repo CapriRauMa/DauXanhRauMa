@@ -1,4 +1,4 @@
---// Capri Menu - Distance-Based Hitbox Optimization (Render limit at 600m) & Full Features
+--// Capri Menu - Save Settings with UI Positions & Full Features
 --// Optimized for Delta Executor
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -6,6 +6,7 @@ local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local HttpService = game:GetService("HttpService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
@@ -14,16 +15,19 @@ if CoreGui:FindFirstChild("CapriMenuGui") then
     CoreGui.CapriMenuGui:Destroy() 
 end
 
+local FileName = "CapriMenuSettings.json"
+
 getgenv().Capri = {
     KA = false,
     ESP = false,
-    HB = false,                -- Hitbox co giãn động theo khoảng cách (Tab PVP)
-    SuperHB = false,           -- Hitbox Xe Tải cố định mức to nhất (Tab Siêu Bá Khí)
+    HB = false,                
+    SuperHB = false,           
     CamLock_Player = false,
     SilentAim_Player = false,
-    SilentAim_NPC = false,     -- Aim NPC
-    FastAttack = false,        -- Fast Attack / Flash Attack
-    V4_Active = false,         -- Biến bật/tắt nút Y ngoài màn hình
+    SilentAim_NPC = false,     
+    FastAttack = false,        
+    V4_Active = false,         
+    LockButtons = false,       
     CamLock_Active = false,
     ShowZone = false,  
     Aim_Active = false,
@@ -31,22 +35,27 @@ getgenv().Capri = {
     NormalZone_Active = true,  
     SuperZone_Active = false,  
     
-    MinHBSize = 4,     -- Kích thước nhỏ nhất khi áp sát cho Hitbox PVP
-    MaxHBSize = 40,    -- Kích thước lớn nhất khi ở xa cho cả Hitbox PVP và Hitbox Xe Tải
-    RenderDist = 600,  -- Cự ly tối đa để hiển thị kích thước hitbox (trên 600m sẽ ẩn để chống lag)
-    MaxDist = 3000,    -- Tầm quét 3000m
+    MinHBSize = 4,     
+    MaxHBSize = 40,    
+    RenderDist = 600,  
+    MaxDist = 3000,    
     
     FOV = 250,         
-    
     PredictionStrength = 0.165,
     Smoothness = 0.15,
     CurrentTarget = nil,
     LockEnabled = false,
     
+    -- Vị trí mặc định các nút
+    CamBtnPos = {0.88, 0, 0.45, 0},
+    AimBtnPos = {0.88, 0, 0.32, 0},
+    JumpBtnPos = {0.88, 0, 0.58, 0},
+    V4BtnPos = {0.88, 0, 0.71, 0},
+    ZoneBtnPos = {0.5, 0, 0.5, 0},
+    
     PlayerTimers = {}
 }
 
---// GUI Setup
 local GUI = Instance.new("ScreenGui")
 GUI.Name = "CapriMenuGui"
 GUI.ResetOnSpawn = false
@@ -56,6 +65,133 @@ local success = pcall(function()
 end)
 if not success then
     GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Khai báo các nút ngoài màn hình trước để load vị trí
+local CamBtn = Instance.new("TextButton", GUI)
+CamBtn.Size = UDim2.new(0, 45, 0, 45)
+CamBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+CamBtn.BackgroundTransparency = 0.5
+CamBtn.Text = "LOCK"
+CamBtn.TextColor3 = Color3.new(1, 1, 1)
+CamBtn.Visible = false
+CamBtn.Font = Enum.Font.GothamBold
+CamBtn.TextSize = 10
+Instance.new("UICorner", CamBtn).CornerRadius = UDim.new(1, 0)
+
+local AimBtn = Instance.new("TextButton", GUI)
+AimBtn.Size = UDim2.new(0, 45, 0, 45)
+AimBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+AimBtn.BackgroundTransparency = 0.5
+AimBtn.Text = "AIM"
+AimBtn.TextColor3 = Color3.new(1, 1, 1)
+AimBtn.Visible = false
+AimBtn.Font = Enum.Font.GothamBold
+AimBtn.TextSize = 10
+Instance.new("UICorner", AimBtn).CornerRadius = UDim.new(1, 0)
+
+local JumpBtn = Instance.new("TextButton", GUI)
+JumpBtn.Name = "CapriJumpBtn"
+JumpBtn.Size = UDim2.new(0, 45, 0, 45)
+JumpBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+JumpBtn.BackgroundTransparency = 0.5
+JumpBtn.Text = "JUMP"
+JumpBtn.TextColor3 = Color3.new(1, 1, 1)
+JumpBtn.Visible = false
+JumpBtn.Font = Enum.Font.GothamBold
+JumpBtn.TextSize = 10
+Instance.new("UICorner", JumpBtn).CornerRadius = UDim.new(1, 0)
+
+local V4Btn = Instance.new("TextButton", GUI)
+V4Btn.Name = "CapriV4Btn"
+V4Btn.Size = UDim2.new(0, 45, 0, 45)
+V4Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+V4Btn.BackgroundTransparency = 0.5
+V4Btn.Text = "Y"
+V4Btn.TextColor3 = Color3.fromRGB(0, 255, 128)
+V4Btn.Visible = false
+V4Btn.Font = Enum.Font.GothamBold
+V4Btn.TextSize = 16
+Instance.new("UICorner", V4Btn).CornerRadius = UDim.new(1, 0)
+
+local ZoneDragButton = Instance.new("TextButton", GUI)
+ZoneDragButton.Size = UDim2.new(0, 35, 0, 35)
+ZoneDragButton.AnchorPoint = Vector2.new(0.5, 0.5)
+ZoneDragButton.BackgroundColor3 = Color3.fromRGB(0, 255, 128)
+ZoneDragButton.BackgroundTransparency = 0.6
+ZoneDragButton.Text = "ZONE"
+ZoneDragButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ZoneDragButton.Font = Enum.Font.SourceSansBold
+ZoneDragButton.TextSize = 10
+ZoneDragButton.Visible = false
+Instance.new("UICorner", ZoneDragButton).CornerRadius = UDim.new(1, 0)
+
+-- Hàm tải setting đã lưu
+local function LoadSettings()
+    local success, err = pcall(function()
+        if readfile and isfile and isfile(FileName) then
+            local content = readfile(FileName)
+            local data = HttpService:JSONDecode(content)
+            for k, v in pairs(data) do
+                if getgenv().Capri[k] ~= nil then
+                    getgenv().Capri[k] = v
+                end
+            end
+            
+            -- Gán lại vị trí nút đã lưu
+            if data.CamBtnPos then CamBtn.Position = UDim2.new(unpack(data.CamBtnPos)) end
+            if data.AimBtnPos then AimBtn.Position = UDim2.new(unpack(data.AimBtnPos)) end
+            if data.JumpBtnPos then JumpBtn.Position = UDim2.new(unpack(data.JumpBtnPos)) end
+            if data.V4BtnPos then V4Btn.Position = UDim2.new(unpack(data.V4BtnPos)) end
+            if data.ZoneBtnPos then ZoneDragButton.Position = UDim2.new(unpack(data.ZoneBtnPos)) end
+        end
+    end)
+end
+
+LoadSettings()
+
+-- Cập nhật hiển thị sau khi load
+CamBtn.Visible = getgenv().Capri.CamLock_Player or getgenv().Capri.CamLock_Active
+AimBtn.Visible = getgenv().Capri.SilentAim_Player or getgenv().Capri.Aim_Active
+AimBtn.BackgroundColor3 = getgenv().Capri.SilentAim_Player and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
+AimBtn.BackgroundTransparency = getgenv().Capri.SilentAim_Player and 0.2 or 0.5
+JumpBtn.Visible = getgenv().Capri.Jump_Active
+V4Btn.Visible = getgenv().Capri.V4_Active
+ZoneDragButton.Visible = getgenv().Capri.ShowZone
+
+-- Hàm lưu setting bao gồm cả vị trí nút
+local function SaveSettings()
+    local success, err = pcall(function()
+        local data = {
+            KA = getgenv().Capri.KA,
+            ESP = getgenv().Capri.ESP,
+            HB = getgenv().Capri.HB,
+            SuperHB = getgenv().Capri.SuperHB,
+            CamLock_Player = getgenv().Capri.CamLock_Player,
+            SilentAim_Player = getgenv().Capri.SilentAim_Player,
+            SilentAim_NPC = getgenv().Capri.SilentAim_NPC,
+            FastAttack = getgenv().Capri.FastAttack,
+            V4_Active = getgenv().Capri.V4_Active,
+            LockButtons = getgenv().Capri.LockButtons,
+            CamLock_Active = getgenv().Capri.CamLock_Active,
+            ShowZone = getgenv().Capri.ShowZone,
+            Aim_Active = getgenv().Capri.Aim_Active,
+            Jump_Active = getgenv().Capri.Jump_Active,
+            NormalZone_Active = getgenv().Capri.NormalZone_Active,
+            SuperZone_Active = getgenv().Capri.SuperZone_Active,
+            FOV = getgenv().Capri.FOV,
+            
+            -- Lưu vị trí UDim2 của các nút
+            CamBtnPos = {CamBtn.Position.X.Scale, CamBtn.Position.X.Offset, CamBtn.Position.Y.Scale, CamBtn.Position.Y.Offset},
+            AimBtnPos = {AimBtn.Position.X.Scale, AimBtn.Position.X.Offset, AimBtn.Position.Y.Scale, AimBtn.Position.Y.Offset},
+            JumpBtnPos = {JumpBtn.Position.X.Scale, JumpBtn.Position.X.Offset, JumpBtn.Position.Y.Scale, JumpBtn.Position.Y.Offset},
+            V4BtnPos = {V4Btn.Position.X.Scale, V4Btn.Position.X.Offset, V4Btn.Position.Y.Scale, V4Btn.Position.Y.Offset},
+            ZoneBtnPos = {ZoneDragButton.Position.X.Scale, ZoneDragButton.Position.X.Offset, ZoneDragButton.Position.Y.Scale, ZoneDragButton.Position.Y.Offset}
+        }
+        if writefile then
+            writefile(FileName, HttpService:JSONEncode(data))
+        end
+    end)
 end
 
 -- ==========================================
@@ -73,67 +209,11 @@ Toggle.BorderColor3 = Color3.fromRGB(0, 255, 128)
 Toggle.BorderSizePixel = 2
 Instance.new("UICorner", Toggle).CornerRadius = UDim.new(1, 0)
 
--- Thêm hiệu ứng viền sáng cho nút Toggle
 local ToggleStroke = Instance.new("UIStroke", Toggle)
 ToggleStroke.Color = Color3.fromRGB(0, 255, 128)
 ToggleStroke.Thickness = 1.5
 ToggleStroke.Transparency = 0.3
 
--- Camlock Screen Button (45x45, Mờ)
-local CamBtn = Instance.new("TextButton", GUI)
-CamBtn.Size = UDim2.new(0, 45, 0, 45)
-CamBtn.Position = UDim2.new(0.88, 0, 0.45, 0)
-CamBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-CamBtn.BackgroundTransparency = 0.5
-CamBtn.Text = "LOCK"
-CamBtn.TextColor3 = Color3.new(1, 1, 1)
-CamBtn.Visible = false
-CamBtn.Font = Enum.Font.GothamBold
-CamBtn.TextSize = 10
-Instance.new("UICorner", CamBtn).CornerRadius = UDim.new(1, 0)
-
--- Aim Screen Button (45x45, Mờ)
-local AimBtn = Instance.new("TextButton", GUI)
-AimBtn.Size = UDim2.new(0, 45, 0, 45)
-AimBtn.Position = UDim2.new(0.88, 0, 0.32, 0)
-AimBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-AimBtn.BackgroundTransparency = 0.5
-AimBtn.Text = "AIM"
-AimBtn.TextColor3 = Color3.new(1, 1, 1)
-AimBtn.Visible = false
-AimBtn.Font = Enum.Font.GothamBold
-AimBtn.TextSize = 10
-Instance.new("UICorner", AimBtn).CornerRadius = UDim.new(1, 0)
-
--- Jump Screen Button (45x45, Mờ)
-local JumpBtn = Instance.new("TextButton", GUI)
-JumpBtn.Name = "CapriJumpBtn"
-JumpBtn.Size = UDim2.new(0, 45, 0, 45)
-JumpBtn.Position = UDim2.new(0.88, 0, 0.58, 0)
-JumpBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-JumpBtn.BackgroundTransparency = 0.5
-JumpBtn.Text = "JUMP"
-JumpBtn.TextColor3 = Color3.new(1, 1, 1)
-JumpBtn.Visible = false
-JumpBtn.Font = Enum.Font.GothamBold
-JumpBtn.TextSize = 10
-Instance.new("UICorner", JumpBtn).CornerRadius = UDim.new(1, 0)
-
--- V4 Screen Button (Nút Y ngoài màn hình, chỉ hiện khi bật V4 trong menu)
-local V4Btn = Instance.new("TextButton", GUI)
-V4Btn.Name = "CapriV4Btn"
-V4Btn.Size = UDim2.new(0, 45, 0, 45)
-V4Btn.Position = UDim2.new(0.88, 0, 0.71, 0)
-V4Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-V4Btn.BackgroundTransparency = 0.5
-V4Btn.Text = "Y"
-V4Btn.TextColor3 = Color3.fromRGB(0, 255, 128)
-V4Btn.Visible = false
-V4Btn.Font = Enum.Font.GothamBold
-V4Btn.TextSize = 16
-Instance.new("UICorner", V4Btn).CornerRadius = UDim.new(1, 0)
-
--- Thao tác bấm nút Y ngoài màn hình để kích hoạt phím Y (V4)
 V4Btn.MouseButton1Click:Connect(function()
     pcall(function()
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Y, false, game)
@@ -146,7 +226,7 @@ V4Btn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- Logic Fast Jump khi nhấn giữ nút JUMP
+-- Logic Fast Jump
 local jumpPower = 240 
 local repeatSpeed = 0.01 
 local holdingJump = false
@@ -181,7 +261,7 @@ JumpBtn.InputEnded:Connect(function(input)
     end
 end)
 
--- Vòng tròn FOV hiển thị trên màn hình
+-- Vòng tròn FOV
 local FOVCircle = Drawing.new("Circle")
 FOVCircle.Visible = false
 FOVCircle.Radius = getgenv().Capri.FOV
@@ -190,25 +270,10 @@ FOVCircle.Color = Color3.fromRGB(0, 255, 128)
 FOVCircle.Thickness = 1.5
 FOVCircle.Transparency = 0.8
 
--- Nút kéo thả tâm Zone
-local ZoneDragButton = Instance.new("TextButton", GUI)
-ZoneDragButton.Size = UDim2.new(0, 35, 0, 35)
-ZoneDragButton.AnchorPoint = Vector2.new(0.5, 0.5)
-ZoneDragButton.Position = UDim2.new(0.5, 0, 0.5, 0)
-ZoneDragButton.BackgroundColor3 = Color3.fromRGB(0, 255, 128)
-ZoneDragButton.BackgroundTransparency = 0.6
-ZoneDragButton.Text = "ZONE"
-ZoneDragButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ZoneDragButton.Font = Enum.Font.SourceSansBold
-ZoneDragButton.TextSize = 10
-ZoneDragButton.Visible = false
-Instance.new("UICorner", ZoneDragButton).CornerRadius = UDim.new(1, 0)
-
-local customPosX, customPosY = nil, nil
 local draggingZone = false
 
 ZoneDragButton.MouseButton1Down:Connect(function()
-    if getgenv().Capri.ShowZone then
+    if getgenv().Capri.ShowZone and not getgenv().Capri.LockButtons then
         draggingZone = true
     end
 end)
@@ -220,9 +285,8 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if draggingZone and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+    if not getgenv().Capri.LockButtons and draggingZone and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local mousePos = input.Position
-        customPosX, customPosY = mousePos.X, mousePos.Y
         ZoneDragButton.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
     end
 end)
@@ -239,7 +303,6 @@ Main.BorderColor3 = Color3.fromRGB(0, 255, 128)
 Main.BorderSizePixel = 2
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
 
--- Hình nền Menu chính
 local BGImage = Instance.new("ImageLabel", Main)
 BGImage.Size = UDim2.new(1, 0, 1, 0)
 BGImage.BackgroundTransparency = 1
@@ -248,9 +311,8 @@ BGImage.ImageTransparency = 0.4
 BGImage.ZIndex = 0
 Instance.new("UICorner", BGImage).CornerRadius = UDim.new(0, 10)
 
--- Tiêu đề Menu
 local Title = Instance.new("TextLabel", Main)
-Title.Size = UDim2.new(0, 110, 0, 45)
+Title.Size = UDim2.new(0, 110, 0, 40)
 Title.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
 Title.BackgroundTransparency = 0.3
 Title.Text = "CAPRI MENU"
@@ -260,7 +322,26 @@ Title.TextSize = 14
 Title.ZIndex = 1
 Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
 
--- Label trạng thái Antiban
+-- Nút "Khóa btn" ngay dưới tiêu đề Menu
+local LockBtnMenu = Instance.new("TextButton", Main)
+LockBtnMenu.Size = UDim2.new(0, 110, 0, 26)
+LockBtnMenu.Position = UDim2.new(0, 0, 0, 43)
+LockBtnMenu.BackgroundColor3 = getgenv().Capri.LockButtons and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
+LockBtnMenu.Text = "Khóa btn: " .. (getgenv().Capri.LockButtons and "ON" or "OFF")
+LockBtnMenu.TextColor3 = getgenv().Capri.LockButtons and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
+LockBtnMenu.Font = Enum.Font.SourceSansSemibold
+LockBtnMenu.TextSize = 11
+LockBtnMenu.ZIndex = 1
+Instance.new("UICorner", LockBtnMenu).CornerRadius = UDim.new(0, 6)
+
+LockBtnMenu.MouseButton1Click:Connect(function()
+    getgenv().Capri.LockButtons = not getgenv().Capri.LockButtons
+    local state = getgenv().Capri.LockButtons
+    LockBtnMenu.Text = "Khóa btn: " .. (state and "ON" or "OFF")
+    LockBtnMenu.TextColor3 = state and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
+    LockBtnMenu.BackgroundColor3 = state and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
+end)
+
 local AntibanLabel = Instance.new("TextLabel", Main)
 AntibanLabel.Size = UDim2.new(0, 110, 0, 25)
 AntibanLabel.Position = UDim2.new(0, 0, 0.78, 0)
@@ -271,24 +352,21 @@ AntibanLabel.Font = Enum.Font.SourceSansBold
 AntibanLabel.TextSize = 11
 AntibanLabel.ZIndex = 1
 
--- Tab Navigation Holder
 local TabHolder = Instance.new("Frame", Main)
-TabHolder.Size = UDim2.new(0, 110, 0, 150)
-TabHolder.Position = UDim2.new(0, 0, 0, 50)
+TabHolder.Size = UDim2.new(0, 110, 0, 110)
+TabHolder.Position = UDim2.new(0, 0, 0, 72)
 TabHolder.BackgroundTransparency = 1
 
 local TabListLayout = Instance.new("UIListLayout", TabHolder)
 TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 TabListLayout.Padding = UDim.new(0, 5)
 
--- Container chứa nội dung các trang
 local Container = Instance.new("Frame", Main)
 Container.Size = UDim2.new(0, 280, 0, 190)
 Container.Position = UDim2.new(0, 122, 0, 10)
 Container.BackgroundTransparency = 1
 Container.ZIndex = 1
 
--- Nút kéo phóng to/thu nhỏ
 local ResizeButton = Instance.new("TextButton", Main)
 ResizeButton.Size = UDim2.new(0, 22, 0, 22)
 ResizeButton.AnchorPoint = Vector2.new(1, 1)
@@ -326,7 +404,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Hệ thống Tab
 local Pages = {}
 local TabButtons = {}
 
@@ -375,10 +452,11 @@ TabButtons["PVP"].BackgroundColor3 = Color3.fromRGB(0, 255, 128)
 TabButtons["PVP"].TextColor3 = Color3.fromRGB(20, 20, 25)
 
 local function addBtn(parentPage, name, key, callback)
+    local currentState = getgenv().Capri[key] or false
     local b = Instance.new("TextButton", parentPage)
-    b.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-    b.Text = name .. (getgenv().Capri[key] and ": ON" or ": OFF")
-    b.TextColor3 = getgenv().Capri[key] and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
+    b.BackgroundColor3 = currentState and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
+    b.Text = name .. (currentState and ": ON" or ": OFF")
+    b.TextColor3 = currentState and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
     b.Font = Enum.Font.SourceSansSemibold
     b.TextSize = 11
     b.ZIndex = 1
@@ -395,7 +473,7 @@ local function addBtn(parentPage, name, key, callback)
     return b
 end
 
--- Tab PVP (Hitbox co giãn động + Các nút tính năng PVP)
+-- Tab PVP
 addBtn(pvpPage, "Hitbox", "HB")
 addBtn(pvpPage, "Lock Players", "CamLock_Player", function(v)
     CamBtn.Visible = v
@@ -413,13 +491,12 @@ addBtn(pvpPage, "V4", "V4_Active", function(v)
     V4Btn.Visible = v
 end)
 
--- Tab Siêu Bá Khí (Chứa Kill Aura, Hitbox Xe Tải, Aim NPC, Fast Attack)
+-- Tab Siêu Bá Khí
 addBtn(superBaKhiPage, "Kill Aura", "KA")
 addBtn(superBaKhiPage, "Hitbox Xe Tải", "SuperHB")
 addBtn(superBaKhiPage, "Aim NPC", "SilentAim_NPC")
 addBtn(superBaKhiPage, "Fast Attack", "FastAttack")
 
--- Biến lưu tham chiếu đến Normal Zone và Super Zone
 local normalZoneBtn, superZoneBtn
 
 addBtn(utilityPage, "ESP + Distance", "ESP")
@@ -431,9 +508,6 @@ addBtn(utilityPage, "Use Lock Btn", "CamLock_Active", function(v)
 end)
 addBtn(utilityPage, "Zone", "ShowZone", function(v) 
     ZoneDragButton.Visible = v 
-    if not v then
-        customPosX, customPosY = nil, nil
-    end
 end)
 addBtn(utilityPage, "Aim Btn", "Aim_Active", function(v) 
     AimBtn.Visible = v 
@@ -465,10 +539,30 @@ superZoneBtn = addBtn(utilityPage, "Super Zone", "SuperZone_Active", function(v,
 end)
 
 if normalZoneBtn then
-    normalZoneBtn.Text = "Normal Zone: ON"
-    normalZoneBtn.TextColor3 = Color3.fromRGB(50, 255, 50)
-    normalZoneBtn.BackgroundColor3 = Color3.fromRGB(20, 60, 20)
+    normalZoneBtn.Text = "Normal Zone: " .. (getgenv().Capri.NormalZone_Active and "ON" or "OFF")
+    normalZoneBtn.TextColor3 = getgenv().Capri.NormalZone_Active and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
+    normalZoneBtn.BackgroundColor3 = getgenv().Capri.NormalZone_Active and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
 end
+
+-- Thêm nút "Lưu Setting" vào tab Nút
+local saveBtn = Instance.new("TextButton", utilityPage)
+saveBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+saveBtn.Text = "Lưu Setting"
+saveBtn.TextColor3 = Color3.fromRGB(0, 255, 128)
+saveBtn.Font = Enum.Font.SourceSansBold
+saveBtn.TextSize = 11
+saveBtn.ZIndex = 1
+Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 6)
+
+saveBtn.MouseButton1Click:Connect(function()
+    SaveSettings()
+    saveBtn.Text = "Đã Lưu!"
+    saveBtn.TextColor3 = Color3.fromRGB(50, 255, 50)
+    task.delay(1, function()
+        saveBtn.Text = "Lưu Setting"
+        saveBtn.TextColor3 = Color3.fromRGB(0, 255, 128)
+    end)
+end)
 
 Toggle.MouseButton1Click:Connect(function()
     Main.Visible = not Main.Visible
@@ -478,12 +572,12 @@ end)
 local function drag(gui)
     local d, s, sp
     gui.InputBegan:Connect(function(i) 
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
+        if not getgenv().Capri.LockButtons and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then 
             d = true; s = i.Position; sp = gui.Position 
         end 
     end)
     gui.InputChanged:Connect(function(i) 
-        if d and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then 
+        if not getgenv().Capri.LockButtons and d and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then 
             local delta = i.Position - s
             gui.Position = UDim2.new(sp.X.Scale, sp.X.Offset + delta.X, sp.Y.Scale, sp.Y.Offset + delta.Y) 
         end 
@@ -507,7 +601,7 @@ AimBtn.MouseButton1Click:Connect(function()
     AimBtn.BackgroundTransparency = getgenv().Capri.SilentAim_Player and 0.2 or 0.5
 end)
 
---// Target Selector Engine (Chỉ aim mục tiêu nằm TRONG vòng tròn FOV)
+--// Target Selector Engine
 task.spawn(function()
     while task.wait(0.1) do
         local C = getgenv().Capri
@@ -541,10 +635,7 @@ task.spawn(function()
                 end
             end
             
-            local circleCenter = Vector2.new(
-                (C.ShowZone and customPosX) or (Camera.ViewportSize.X / 2),
-                (C.ShowZone and customPosY) or (Camera.ViewportSize.Y / 2)
-            )
+            local circleCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
             
             for _, char in pairs(potential) do
                 local hPart = char:FindFirstChild("HumanoidRootPart")
@@ -571,7 +662,7 @@ task.spawn(function()
     end
 end)
 
---// Fast Attack / Flash Attack Engine
+--// Fast Attack Engine
 task.spawn(function()
     while task.wait() do
         local C = getgenv().Capri
@@ -583,7 +674,7 @@ task.spawn(function()
     end
 end)
 
--- Silent Aim Hook (Hỗ trợ Silent Aim cho cả Player và NPC nằm trong FOV)
+-- Silent Aim Hook
 local old
 old = hookmetamethod(game, "__namecall", function(self, ...)
     local method = getnamecallmethod()
@@ -611,31 +702,20 @@ RunService.RenderStepped:Connect(function()
     
     local shouldShowZone = C.ShowZone or C.SilentAim_Player or C.SilentAim_NPC
     FOVCircle.Visible = shouldShowZone
-    
-    local circleX = (C.ShowZone and customPosX) or (Camera.ViewportSize.X / 2)
-    local circleY = (C.ShowZone and customPosY) or (Camera.ViewportSize.Y / 2)
-    
-    FOVCircle.Position = Vector2.new(circleX, circleY)
     FOVCircle.Radius = C.FOV
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     
     ZoneDragButton.Visible = C.ShowZone
-    if C.ShowZone and not customPosX and not customPosY then
-        ZoneDragButton.Position = UDim2.new(0, Camera.ViewportSize.X / 2, 0, Camera.ViewportSize.Y / 2)
-        customPosX, customPosY = Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2
-    elseif not C.ShowZone and not draggingZone then
-        ZoneDragButton.Position = UDim2.new(0, Camera.ViewportSize.X / 2, 0, Camera.ViewportSize.Y / 2)
-    end
 
     AimBtn.BackgroundColor3 = (C.SilentAim_Player or C.SilentAim_NPC) and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
     AimBtn.BackgroundTransparency = (C.SilentAim_Player or C.SilentAim_NPC) and 0.2 or 0.5
     CamBtn.BackgroundTransparency = C.LockEnabled and 0.2 or 0.5
 
-    -- CamLock (Khóa góc nhìn camera vào Player)
     if C.LockEnabled and C.CurrentTarget then
         Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, C.CurrentTarget.Position), C.Smoothness)
     end
 
-    -- Hitbox Logic: Tự động ẩn kích thước khi ở xa > 600m để chống lag nhưng vẫn giữ tác dụng
+    -- Hitbox Logic với render distance 600m chống lag
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local hrp = p.Character:FindFirstChild("HumanoidRootPart")
@@ -643,7 +723,6 @@ RunService.RenderStepped:Connect(function()
                 local distToMe = myRoot and (myRoot.Position - hrp.Position).Magnitude or 999
                 
                 if C.SuperHB then
-                    -- Hitbox Xe Tải ở Siêu Bá Khí: Chỉ hiển thị kích thước siêu to khi <= 600m, xa hơn sẽ thu về chuẩn để chống lag
                     if distToMe <= C.RenderDist then
                         hrp.Size = Vector3.new(C.MaxHBSize, C.MaxHBSize, C.MaxHBSize)
                         hrp.Transparency = 0.4
@@ -654,7 +733,6 @@ RunService.RenderStepped:Connect(function()
                         hrp.CanCollide = false
                     end
                 elseif C.HB then
-                    -- Hitbox co giãn động ở Tab PVP: Chỉ hiển thị khi <= 600m, xa hơn sẽ ẩn
                     if distToMe <= C.RenderDist then
                         local minD, maxD = 4, 30
                         local alpha = math.clamp((distToMe - minD) / (maxD - minD), 0, 1)
