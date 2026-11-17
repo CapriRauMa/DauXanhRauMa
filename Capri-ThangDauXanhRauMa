@@ -1,4 +1,4 @@
---// Capri Menu - Fixed 360° Auto Lock Bug (Strictly Range Mode Only)
+--// Capri Menu - Updated Super Dash to 200m & Full Features
 --// Optimized for Delta Executor
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -32,6 +32,7 @@ getgenv().Capri = {
     ShowZone = false,  
     Aim_Active = false,
     Jump_Active = false,       
+    SuperDash_Active = false,  -- Tính năng Super Dash (~200m)
     
     -- 3 chế độ phạm vi Aim (chỉ 1 cái bật tại 1 thời điểm)
     NormalZone_Active = true,  
@@ -48,13 +49,14 @@ getgenv().Capri = {
     PredictionStrength = 0.165,
     Smoothness = 0.15,
     CurrentTarget = nil,
-    LockEnabled = false, -- Trạng thái bật/tắt nút LOCK camera
+    LockEnabled = false,
     
     -- Vị trí mặc định các nút
     CamBtnPos = {0.88, 0, 0.45, 0},
     AimBtnPos = {0.88, 0, 0.32, 0},
     JumpBtnPos = {0.88, 0, 0.58, 0},
     V4BtnPos = {0.88, 0, 0.71, 0},
+    DashBtnPos = {0.78, 0, 0.58, 0},
     ZoneBtnPos = {0.5, 0, 0.5, 0},
     
     PlayerTimers = {}
@@ -118,6 +120,18 @@ V4Btn.Font = Enum.Font.GothamBold
 V4Btn.TextSize = 16
 Instance.new("UICorner", V4Btn).CornerRadius = UDim.new(1, 0)
 
+local DashBtn = Instance.new("TextButton", GUI)
+DashBtn.Name = "CapriDashBtn"
+DashBtn.Size = UDim2.new(0, 45, 0, 45)
+DashBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+DashBtn.BackgroundTransparency = 0.5
+DashBtn.Text = "DASH"
+DashBtn.TextColor3 = Color3.fromRGB(0, 200, 255)
+DashBtn.Visible = false
+DashBtn.Font = Enum.Font.GothamBold
+DashBtn.TextSize = 10
+Instance.new("UICorner", DashBtn).CornerRadius = UDim.new(1, 0)
+
 local ZoneDragButton = Instance.new("TextButton", GUI)
 ZoneDragButton.Size = UDim2.new(0, 35, 0, 35)
 ZoneDragButton.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -146,6 +160,7 @@ local function LoadSettings()
             if data.AimBtnPos then AimBtn.Position = UDim2.new(unpack(data.AimBtnPos)) end
             if data.JumpBtnPos then JumpBtn.Position = UDim2.new(unpack(data.JumpBtnPos)) end
             if data.V4BtnPos then V4Btn.Position = UDim2.new(unpack(data.V4BtnPos)) end
+            if data.DashBtnPos then DashBtn.Position = UDim2.new(unpack(data.DashBtnPos)) end
             if data.ZoneBtnPos then ZoneDragButton.Position = UDim2.new(unpack(data.ZoneBtnPos)) end
         end
     end)
@@ -159,6 +174,7 @@ AimBtn.BackgroundColor3 = getgenv().Capri.SilentAim_Player and Color3.fromRGB(0,
 AimBtn.BackgroundTransparency = getgenv().Capri.SilentAim_Player and 0.2 or 0.5
 JumpBtn.Visible = getgenv().Capri.Jump_Active
 V4Btn.Visible = getgenv().Capri.V4_Active
+DashBtn.Visible = getgenv().Capri.SuperDash_Active
 ZoneDragButton.Visible = getgenv().Capri.ShowZone and not getgenv().Capri.Aim360
 
 -- Hàm lưu setting
@@ -180,6 +196,7 @@ local function SaveSettings()
             Aim360 = getgenv().Capri.Aim360,
             Aim_Active = getgenv().Capri.Aim_Active,
             Jump_Active = getgenv().Capri.Jump_Active,
+            SuperDash_Active = getgenv().Capri.SuperDash_Active,
             NormalZone_Active = getgenv().Capri.NormalZone_Active,
             SuperZone_Active = getgenv().Capri.SuperZone_Active,
             FOV = getgenv().Capri.FOV,
@@ -188,6 +205,7 @@ local function SaveSettings()
             AimBtnPos = {AimBtn.Position.X.Scale, AimBtn.Position.X.Offset, AimBtn.Position.Y.Scale, AimBtn.Position.Y.Offset},
             JumpBtnPos = {JumpBtn.Position.X.Scale, JumpBtn.Position.X.Offset, JumpBtn.Position.Y.Scale, JumpBtn.Position.Y.Offset},
             V4BtnPos = {V4Btn.Position.X.Scale, V4Btn.Position.X.Offset, V4Btn.Position.Y.Scale, V4Btn.Position.Y.Offset},
+            DashBtnPos = {DashBtn.Position.X.Scale, DashBtn.Position.X.Offset, DashBtn.Position.Y.Scale, DashBtn.Position.Y.Offset},
             ZoneBtnPos = {ZoneDragButton.Position.X.Scale, ZoneDragButton.Position.X.Offset, ZoneDragButton.Position.Y.Scale, ZoneDragButton.Position.Y.Offset}
         }
         if writefile then
@@ -216,6 +234,7 @@ ToggleStroke.Color = Color3.fromRGB(0, 255, 128)
 ToggleStroke.Thickness = 1.5
 ToggleStroke.Transparency = 0.3
 
+-- Logic nút V4
 V4Btn.MouseButton1Click:Connect(function()
     pcall(function()
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Y, false, game)
@@ -228,6 +247,51 @@ V4Btn.MouseButton1Click:Connect(function()
     end)
 end)
 
+-- Logic nút Super Dash (~200m theo hướng nhìn)
+local isDashing = false
+local function doSuperDash()
+    if isDashing then return end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    isDashing = true
+    DashBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+    DashBtn.BackgroundTransparency = 0.2
+
+    -- Tính hướng lướt phẳng theo hướng nhìn của Camera
+    local camLook = Camera.CFrame.LookVector
+    local flatDir = Vector3.new(camLook.X, 0, camLook.Z)
+    if flatDir.Magnitude > 0.01 then
+        flatDir = flatDir.Unit
+    else
+        flatDir = root.CFrame.LookVector
+    end
+
+    -- Quãng đường ~200 studs chia làm nhiều bước lướt mượt
+    local totalDist = 200
+    local steps = 10
+    local stepDist = totalDist / steps
+
+    task.spawn(function()
+        for i = 1, steps do
+            if root and root.Parent then
+                root.CFrame = root.CFrame + (flatDir * stepDist)
+                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            end
+            task.wait(0.015)
+        end
+        isDashing = false
+        DashBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        DashBtn.BackgroundTransparency = 0.5
+    end)
+end
+
+DashBtn.MouseButton1Click:Connect(function()
+    doSuperDash()
+end)
+
+-- Logic nút Jump
 local jumpPower = 240 
 local repeatSpeed = 0.01 
 local holdingJump = false
@@ -493,6 +557,9 @@ end)
 addBtn(pvpPage, "V4", "V4_Active", function(v)
     V4Btn.Visible = v
 end)
+addBtn(pvpPage, "Super Dash", "SuperDash_Active", function(v)
+    DashBtn.Visible = v
+end)
 
 local normalZoneBtn, superZoneBtn, aim360Btn
 
@@ -608,6 +675,7 @@ drag(CamBtn)
 drag(AimBtn)
 drag(JumpBtn)
 drag(V4Btn)
+drag(DashBtn)
 
 CamBtn.MouseButton1Click:Connect(function()
     getgenv().Capri.LockEnabled = not getgenv().Capri.LockEnabled
@@ -629,7 +697,7 @@ AimBtn.MouseButton1Click:Connect(function()
     end
 end)
 
---// Target Selector Engine (360° chỉ mở rộng tầm quét mục tiêu, KHÔNG tự ghì camera)
+--// Target Selector Engine
 task.spawn(function()
     while task.wait(0.1) do
         local C = getgenv().Capri
@@ -744,7 +812,6 @@ RunService.RenderStepped:Connect(function()
     AimBtn.BackgroundTransparency = C.SilentAim_Player and 0.2 or 0.5
     CamBtn.BackgroundTransparency = C.LockEnabled and 0.2 or 0.5
 
-    -- CHỈ KHÓA CAMERA KHI BẠN BẬT NÚT LOCK NGOÀI MÀN HÌNH
     if C.LockEnabled and C.CurrentTarget then
         Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, C.CurrentTarget.Position), C.Smoothness)
     end
