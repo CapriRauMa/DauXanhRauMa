@@ -7,6 +7,7 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser")
 local HttpService = game:GetService("HttpService")
 local Workspace = game:GetService("Workspace")
+local ContentProvider = game:GetService("ContentProvider")
 
 local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
@@ -31,6 +32,14 @@ if getgenv().CapriSilentAimDot then
     pcall(function() getgenv().CapriSilentAimDot:Remove() end)
     getgenv().CapriSilentAimDot = nil
 end
+if getgenv().CapriRJRFOVCircle then
+    pcall(function() getgenv().CapriRJRFOVCircle:Remove() end)
+    getgenv().CapriRJRFOVCircle = nil
+end
+if getgenv().CapriRJRSilentLine then
+    pcall(function() getgenv().CapriRJRSilentLine:Remove() end)
+    getgenv().CapriRJRSilentLine = nil
+end
 if getgenv().CapriESPDrawings then
     for _, obj in pairs(getgenv().CapriESPDrawings) do
         pcall(function()
@@ -40,6 +49,15 @@ if getgenv().CapriESPDrawings then
         end)
     end
     getgenv().CapriESPDrawings = {}
+end
+if getgenv().CapriRJRESPObjs then
+    for _, obj in pairs(getgenv().CapriRJRESPObjs) do
+        pcall(function()
+            if obj.gui then obj.gui:Destroy() end
+            if obj.highlight then obj.highlight:Destroy() end
+        end)
+    end
+    getgenv().CapriRJRESPObjs = {}
 end
 
 local Defaults = {
@@ -85,6 +103,27 @@ local Defaults = {
     FOV = 250,
     PredictionStrength = 0.165,
     Smoothness = 0.15,
+
+    -- Cấu hình ESP chuyển từ RJR
+    RJR_ESPEnabled = false,
+    RJR_ESP_Name = true,
+    RJR_ESP_Level = true,
+    RJR_ESP_Bounty = true,
+    RJR_ESP_Fruit = true,
+    RJR_ESP_Distance = true,
+    RJR_ESP_HP = true,
+    RJR_ESP_TextSize = 14,
+    RJR_ESP_Highlight = false,
+    RJR_ESP_HighlightColor = "FF0000",
+    RJR_ESP_Layout = "Cổ điển",
+    RJR_ESP_Avatar = false,
+    RJR_ESP_AvatarSide = "Phải",
+    RJR_ESP_NameColor = "FFFF00",
+    RJR_ESP_LevelColor = "00FF00",
+    RJR_ESP_BountyColor = "FFD700",
+    RJR_ESP_FruitColor = "FF69B4",
+    RJR_ESP_DistanceColor = "00FFFF",
+    RJR_ESP_HPColor = "FF5555",
 
     -- Vị trí mặc định các nút nổi
     CamBtnPos = { 0.88, 0, 0.45, 0 },
@@ -395,6 +434,8 @@ local MainTab = Window:Tab({ Title = "Main" })
 local PvpTab = Window:Tab({ Title = "PVP" })
 local SuperTab = Window:Tab({ Title = "Siêu Bá Khí" })
 local UtilityTab = Window:Tab({ Title = "Nút" })
+local ESPTab = Window:Tab({ Title = "ESP" })
+local ShopTab = Window:Tab({ Title = "Shop" })
 
 local uiControls = {}
 
@@ -1138,6 +1179,627 @@ else
 end
 
 -- ==========================================
+-- 6B. TAB ESP (CHUYỂN TỪ SCRIPT RJR)
+-- ==========================================
+local function rjrHexToColor3(hex)
+    hex = tostring(hex or "FFFFFF"):gsub("#", "")
+    local r = (tonumber(hex:sub(1, 2), 16) or 255) / 255
+    local g = (tonumber(hex:sub(3, 4), 16) or 255) / 255
+    local b = (tonumber(hex:sub(5, 6), 16) or 255) / 255
+    return Color3.new(r, g, b)
+end
+
+local function rjrSaveHexColor(key, color)
+    _G[key] = string.format(
+        "%02X%02X%02X",
+        math.floor(color.R * 255 + 0.5),
+        math.floor(color.G * 255 + 0.5),
+        math.floor(color.B * 255 + 0.5)
+    )
+    SaveConfig()
+end
+
+local rjrEspRunning = false
+local rjrEspObjects = {}
+getgenv().CapriRJRESPObjs = rjrEspObjects
+local rjrPlayerCache = {}
+local rjrLastESPUpdate = 0
+local RJR_ESP_UPDATE_INTERVAL = 0.1
+
+local function rjrGetTeamInfo(plr)
+    if not plr.Team then
+        return "Không rõ", Color3.fromRGB(255, 255, 255)
+    end
+    if plr.Team.Name == "Marines" then
+        return "Hải quân", Color3.fromRGB(0, 170, 255)
+    else
+        return "Hải tặc", Color3.fromRGB(255, 70, 70)
+    end
+end
+
+local function rjrColor3ToRGBString(color3)
+    return string.format(
+        "rgb(%d,%d,%d)",
+        math.floor(color3.R * 255 + 0.5),
+        math.floor(color3.G * 255 + 0.5),
+        math.floor(color3.B * 255 + 0.5)
+    )
+end
+
+local function rjrNormalizeLayout(layout)
+    layout = layout or "Cổ điển"
+    if layout == "血条" or layout == "Thanh máu" then return "Kiểu thanh máu" end
+    if layout == "多行" or layout == "单行" or layout == "双行" or layout == "方框" or layout == "经典" then return "Cổ điển" end
+    return layout
+end
+
+local function rjrFormatBounty(amount)
+    amount = tonumber(amount) or 0
+    if amount >= 1000000 then
+        return string.format("%.1f", amount / 1000000) .. "M"
+    else
+        return string.format("%.1f", amount / 1000) .. "K"
+    end
+end
+
+local function rjrIsExcludedPlayer(plr)
+    if not plr or plr == LocalPlayer then return true end
+    if plr:GetAttribute("IsAuthor") then return true end
+    local excludedNames = {
+        Mas_Yes = true,
+        sjqgduf = true,
+        sjqgdu6 = true,
+        huha123444 = true,
+        huha124444 = true,
+        ksxrcm111 = true,
+        ksxrcn111 = true,
+        Dddyy5 = true,
+    }
+    return excludedNames[plr.Name] == true
+end
+
+local function rjrRemoveESP(plr)
+    local entry = rjrEspObjects[plr]
+    if entry then
+        pcall(function()
+            if entry.gui then entry.gui:Destroy() end
+            if entry.highlight then entry.highlight:Destroy() end
+        end)
+        rjrEspObjects[plr] = nil
+    end
+end
+
+local function rjrCreateESP(plr)
+    if rjrIsExcludedPlayer(plr) then return end
+    local char = plr.Character
+    local head = char and char:FindFirstChild("Head")
+    if not char or not head then return end
+
+    local _, teamColor = rjrGetTeamInfo(plr)
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Adornee = head
+    billboard.Size = UDim2.new(0, 220, 0, 150)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.AlwaysOnTop = true
+
+    local text = Instance.new("TextLabel")
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.BackgroundTransparency = 1
+    text.TextScaled = false
+    text.TextSize = tonumber(_G.RJR_ESP_TextSize) or 14
+    text.RichText = true
+    text.Font = Enum.Font.SourceSansBold
+    text.TextStrokeTransparency = 0
+    text.TextColor3 = teamColor
+    text.Parent = billboard
+
+    local hpBar = Instance.new("Frame")
+    hpBar.Name = "ESP_HPBar"
+    hpBar.Size = UDim2.new(1, -60, 0, 6)
+    hpBar.Position = UDim2.new(0.5, 0, 1, -8)
+    hpBar.AnchorPoint = Vector2.new(0.5, 1)
+    hpBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    hpBar.BorderSizePixel = 1
+    hpBar.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    hpBar.Visible = false
+
+    local hpFill = Instance.new("Frame")
+    hpFill.Size = UDim2.new(1, 0, 1, 0)
+    hpFill.Position = UDim2.new(0, 0, 0.5, 0)
+    hpFill.AnchorPoint = Vector2.new(0, 0.5)
+    hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    hpFill.BorderSizePixel = 0
+    hpFill.Parent = hpBar
+    hpBar.Parent = billboard
+
+    local avatar = Instance.new("ImageLabel")
+    avatar.Name = "ESP_Avatar"
+    avatar.Size = UDim2.new(0, 42, 0, 42)
+    avatar.AnchorPoint = Vector2.new(0, 0.5)
+    avatar.Position = UDim2.new(0, 4, 0.5, 0)
+    avatar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    avatar.BackgroundTransparency = 0.2
+    avatar.BorderSizePixel = 1
+    avatar.BorderColor3 = teamColor
+    avatar.Image = ""
+    avatar.ScaleType = Enum.ScaleType.Crop
+    avatar.Visible = false
+    avatar.Parent = billboard
+
+    task.spawn(function()
+        pcall(function()
+            local url = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. plr.UserId .. "&width=420&height=420&format=png"
+            pcall(function()
+                ContentProvider:Preload(url)
+            end)
+            if avatar and avatar.Parent then
+                avatar.Image = url
+            end
+        end)
+    end)
+
+    billboard.Parent = head
+
+    local highlight = nil
+    if _G.RJR_ESP_Highlight then
+        local hlColor = rjrHexToColor3(_G.RJR_ESP_HighlightColor)
+        highlight = Instance.new("Highlight")
+        highlight.Name = "ESP_PlayerHighlight"
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.FillColor = hlColor
+        highlight.FillTransparency = 0.5
+        highlight.OutlineColor = hlColor
+        highlight.OutlineTransparency = 0
+        highlight.Parent = char
+    end
+
+    rjrEspObjects[plr] = {
+        gui = billboard,
+        label = text,
+        hpBar = hpBar,
+        hpFill = hpFill,
+        avatar = avatar,
+        char = char,
+        highlight = highlight,
+    }
+end
+
+local function rjrGetPlayerData(plr)
+    if not rjrPlayerCache[plr] then
+        rjrPlayerCache[plr] = {
+            level = "?",
+            fruit = "Không có",
+            bounty = 0,
+            team = "Không rõ",
+            color = Color3.fromRGB(255, 255, 255),
+            lastUpdate = 0,
+        }
+    end
+    local cache = rjrPlayerCache[plr]
+    local now = tick()
+    if now - cache.lastUpdate > 5 then
+        pcall(function() cache.level = plr.Data.Level.Value end)
+        pcall(function() cache.fruit = plr.Data.DevilFruit.Value end)
+        pcall(function() cache.bounty = plr.leaderstats["Bounty/Honor"].Value end)
+        cache.team, cache.color = rjrGetTeamInfo(plr)
+        cache.lastUpdate = now
+    end
+    return cache
+end
+
+local function rjrUpdateESP()
+    local now = tick()
+    if now - rjrLastESPUpdate < RJR_ESP_UPDATE_INTERVAL then return end
+    rjrLastESPUpdate = now
+
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+    local myPos = myRoot.Position
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if rjrIsExcludedPlayer(plr) then
+            if rjrEspObjects[plr] then
+                rjrRemoveESP(plr)
+            end
+            continue
+        end
+
+        local char = plr.Character
+        local head = char and char:FindFirstChild("Head")
+        local entry = rjrEspObjects[plr]
+
+        if char and head then
+            if not entry or entry.char ~= char or not entry.gui or not entry.gui.Parent then
+                rjrRemoveESP(plr)
+                rjrCreateESP(plr)
+                entry = rjrEspObjects[plr]
+            end
+        else
+            if entry then
+                rjrRemoveESP(plr)
+            end
+            continue
+        end
+
+        if not entry then continue end
+
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if hum and root and hum.MaxHealth > 0 then
+            local distance = math.floor((root.Position - myPos).Magnitude)
+            local hp = math.floor((hum.Health / hum.MaxHealth) * 100)
+            local pData = rjrGetPlayerData(plr)
+
+            local warnTag = (tonumber(pData.bounty) or 0) > 10000000 and "⚠ " or ""
+            local pvpState = "⚔ PVP Đã Bật "
+            local pvpIcon = "🔴 "
+            local isPvpDisabled = false
+            if plr:GetAttribute("PvpDisabled") == true then
+                pvpState = "PvP Đã Tắt "
+                pvpIcon = "🟢 "
+                isPvpDisabled = true
+            end
+
+            entry.label.TextColor3 = pData.color
+            local layout = rjrNormalizeLayout(_G.RJR_ESP_Layout)
+            local ts = tonumber(_G.RJR_ESP_TextSize) or 14
+            if entry.label.TextSize ~= ts then
+                entry.label.TextSize = ts
+            end
+
+            local showAvatar = _G.RJR_ESP_Avatar and entry.avatar.Image ~= ""
+            local avatarLeft = _G.RJR_ESP_AvatarSide == "Trái"
+            entry.avatar.Visible = showAvatar
+            if showAvatar then
+                pcall(function()
+                    if avatarLeft then
+                        entry.avatar.AnchorPoint = Vector2.new(0, 0.5)
+                        entry.avatar.Position = UDim2.new(0, 4, 0.5, 0)
+                        entry.label.AnchorPoint = Vector2.new(0.5, 0.5)
+                        entry.label.Position = UDim2.new(0.5, 18, 0.5, 0)
+                        entry.label.Size = UDim2.new(1, -56, 1, 0)
+                    else
+                        entry.avatar.AnchorPoint = Vector2.new(1, 0.5)
+                        entry.avatar.Position = UDim2.new(1, -4, 0.5, 0)
+                        entry.label.AnchorPoint = Vector2.new(0.5, 0.5)
+                        entry.label.Position = UDim2.new(0.5, -18, 0.5, 0)
+                        entry.label.Size = UDim2.new(1, -56, 1, 0)
+                    end
+                end)
+            else
+                pcall(function()
+                    entry.label.AnchorPoint = Vector2.new(0, 0)
+                    entry.label.Position = UDim2.new(0, 0, 0, 0)
+                    entry.label.Size = UDim2.new(1, 0, 1, 0)
+                end)
+            end
+
+            local namePart, levelPart, fruitPart, bountyPart, distPart, hpPart
+            if _G.RJR_ESP_Name then
+                namePart = warnTag .. "[" .. pData.team .. "] <font color=\"" .. rjrColor3ToRGBString(rjrHexToColor3(_G.RJR_ESP_NameColor)) .. "\">" .. plr.Name .. "</font>"
+            end
+            if _G.RJR_ESP_Level then
+                levelPart = "<font color=\"" .. rjrColor3ToRGBString(rjrHexToColor3(_G.RJR_ESP_LevelColor)) .. "\">Lv." .. tostring(pData.level) .. "</font>"
+            end
+            local pvpPart = isPvpDisabled
+                and ("<font color=\"rgb(0,255,0)\">" .. pvpIcon .. pvpState .. "</font>")
+                or (pvpIcon .. pvpState)
+            if _G.RJR_ESP_Fruit then
+                fruitPart = "<font color=\"" .. rjrColor3ToRGBString(rjrHexToColor3(_G.RJR_ESP_FruitColor)) .. "\">Trái: " .. tostring(pData.fruit) .. "</font>"
+            end
+            if _G.RJR_ESP_Bounty then
+                bountyPart = "<font color=\"" .. rjrColor3ToRGBString(rjrHexToColor3(_G.RJR_ESP_BountyColor)) .. "\">Truy nã: " .. rjrFormatBounty(pData.bounty) .. "</font>"
+            end
+            if _G.RJR_ESP_Distance then
+                distPart = "<font color=\"" .. rjrColor3ToRGBString(rjrHexToColor3(_G.RJR_ESP_DistanceColor)) .. "\">" .. tostring(distance) .. "m</font>"
+            end
+            if _G.RJR_ESP_HP and layout ~= "Kiểu thanh máu" then
+                hpPart = "<font color=\"" .. rjrColor3ToRGBString(rjrHexToColor3(_G.RJR_ESP_HPColor)) .. "\">Máu " .. tostring(hp) .. "%</font>"
+            end
+
+            entry.gui.StudsOffset = Vector3.new(0, 3, 0)
+            local hpBarVisible = layout == "Kiểu thanh máu"
+            entry.hpBar.Visible = hpBarVisible
+            if hpBarVisible then
+                pcall(function()
+                    entry.hpFill.Size = UDim2.new(math.clamp(hp / 100, 0, 1), 0, 1, 0)
+                    if hp > 50 then
+                        entry.hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+                    elseif hp > 25 then
+                        entry.hpFill.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+                    else
+                        entry.hpFill.BackgroundColor3 = Color3.fromRGB(255, 40, 40)
+                    end
+                end)
+            end
+
+            entry.label.Visible = true
+            local parts = {}
+            if namePart then parts[#parts + 1] = namePart end
+            if levelPart then parts[#parts + 1] = levelPart end
+            if pvpPart then parts[#parts + 1] = pvpPart end
+            if fruitPart then parts[#parts + 1] = fruitPart end
+            if bountyPart then parts[#parts + 1] = bountyPart end
+            if distPart then parts[#parts + 1] = distPart end
+            if hpPart then parts[#parts + 1] = hpPart end
+            entry.label.Text = table.concat(parts, "\n")
+
+            if _G.RJR_ESP_Highlight then
+                local hlColor = rjrHexToColor3(_G.RJR_ESP_HighlightColor)
+                pcall(function()
+                    for _, child in ipairs(char:GetChildren()) do
+                        if child:IsA("Highlight") and child.Name ~= "ESP_PlayerHighlight" then
+                            child.FillColor = hlColor
+                            child.OutlineColor = hlColor
+                            child.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        end
+                    end
+                end)
+                if not entry.highlight or not entry.highlight.Parent then
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "ESP_PlayerHighlight"
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.FillColor = hlColor
+                    hl.FillTransparency = 0.5
+                    hl.OutlineColor = hlColor
+                    hl.OutlineTransparency = 0
+                    hl.Parent = char
+                    entry.highlight = hl
+                else
+                    entry.highlight.FillColor = hlColor
+                    entry.highlight.OutlineColor = hlColor
+                    entry.highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                end
+            else
+                if entry.highlight then
+                    entry.highlight:Destroy()
+                    entry.highlight = nil
+                end
+            end
+        end
+    end
+end
+
+local function rjrEnableESP()
+    if rjrEspRunning then return end
+    rjrEspRunning = true
+    for _, plr in ipairs(Players:GetPlayers()) do
+        rjrCreateESP(plr)
+    end
+    task.spawn(function()
+        while rjrEspRunning do
+            pcall(rjrUpdateESP)
+            task.wait(RJR_ESP_UPDATE_INTERVAL)
+        end
+    end)
+end
+
+local function rjrDisableESP()
+    rjrEspRunning = false
+    for plr in pairs(rjrEspObjects) do
+        rjrRemoveESP(plr)
+    end
+    rjrEspObjects = {}
+    getgenv().CapriRJRESPObjs = rjrEspObjects
+end
+
+Players.PlayerRemoving:Connect(function(plr)
+    rjrRemoveESP(plr)
+    rjrPlayerCache[plr] = nil
+end)
+
+uiControls.RJR_ESPEnabled = ESPTab:Toggle({
+    Title = "Bật ESP",
+    Value = _G.RJR_ESPEnabled,
+    Callback = Bind("RJR_ESPEnabled", function(v)
+        if v then
+            rjrEnableESP()
+        else
+            rjrDisableESP()
+        end
+    end),
+})
+
+uiControls.RJR_ESP_Name = ESPTab:Toggle({
+    Title = "Hiện Tên Người Chơi",
+    Value = _G.RJR_ESP_Name,
+    Callback = Bind("RJR_ESP_Name"),
+})
+
+uiControls.RJR_ESP_Level = ESPTab:Toggle({
+    Title = "Hiện Cấp Độ Người Chơi",
+    Value = _G.RJR_ESP_Level,
+    Callback = Bind("RJR_ESP_Level"),
+})
+
+uiControls.RJR_ESP_Bounty = ESPTab:Toggle({
+    Title = "Hiện Truy Nã Người Chơi",
+    Value = _G.RJR_ESP_Bounty,
+    Callback = Bind("RJR_ESP_Bounty"),
+})
+
+uiControls.RJR_ESP_Fruit = ESPTab:Toggle({
+    Title = "Hiện Trái Ác Quỷ",
+    Value = _G.RJR_ESP_Fruit,
+    Callback = Bind("RJR_ESP_Fruit"),
+})
+
+uiControls.RJR_ESP_Distance = ESPTab:Toggle({
+    Title = "Hiện Khoảng Cách",
+    Value = _G.RJR_ESP_Distance,
+    Callback = Bind("RJR_ESP_Distance"),
+})
+
+uiControls.RJR_ESP_HP = ESPTab:Toggle({
+    Title = "Hiện Máu",
+    Value = _G.RJR_ESP_HP,
+    Callback = Bind("RJR_ESP_HP"),
+})
+
+uiControls.RJR_ESP_Highlight = ESPTab:Toggle({
+    Title = "Làm Nổi Bật Người Chơi",
+    Value = _G.RJR_ESP_Highlight,
+    Callback = Bind("RJR_ESP_Highlight"),
+})
+
+ESPTab:Colorpicker({
+    Title = "Màu Làm Nổi Bật",
+    Default = rjrHexToColor3(_G.RJR_ESP_HighlightColor),
+    Transparency = 0,
+    Callback = function(color)
+        rjrSaveHexColor("RJR_ESP_HighlightColor", color)
+    end,
+})
+
+ESPTab:Divider()
+
+uiControls.RJR_ESP_Layout = ESPTab:Dropdown({
+    Title = "Kiểu Hiển Thị ESP",
+    Values = { "Cổ điển", "Kiểu thanh máu" },
+    Value = rjrNormalizeLayout(_G.RJR_ESP_Layout),
+    Callback = Bind("RJR_ESP_Layout"),
+})
+
+uiControls.RJR_ESP_Avatar = ESPTab:Toggle({
+    Title = "Hiện Ảnh Đại Diện",
+    Value = _G.RJR_ESP_Avatar,
+    Callback = Bind("RJR_ESP_Avatar"),
+})
+
+uiControls.RJR_ESP_AvatarSide = ESPTab:Dropdown({
+    Title = "Vị Trí Ảnh Đại Diện",
+    Values = { "Trái", "Phải" },
+    Value = _G.RJR_ESP_AvatarSide,
+    Callback = Bind("RJR_ESP_AvatarSide"),
+})
+
+ESPTab:Colorpicker({
+    Title = "Màu Tên",
+    Default = rjrHexToColor3(_G.RJR_ESP_NameColor),
+    Callback = function(color)
+        rjrSaveHexColor("RJR_ESP_NameColor", color)
+    end,
+})
+
+ESPTab:Colorpicker({
+    Title = "Màu Cấp Độ",
+    Default = rjrHexToColor3(_G.RJR_ESP_LevelColor),
+    Callback = function(color)
+        rjrSaveHexColor("RJR_ESP_LevelColor", color)
+    end,
+})
+
+ESPTab:Colorpicker({
+    Title = "Màu Truy Nã",
+    Default = rjrHexToColor3(_G.RJR_ESP_BountyColor),
+    Callback = function(color)
+        rjrSaveHexColor("RJR_ESP_BountyColor", color)
+    end,
+})
+
+ESPTab:Colorpicker({
+    Title = "Màu Trái Ác Quỷ",
+    Default = rjrHexToColor3(_G.RJR_ESP_FruitColor),
+    Callback = function(color)
+        rjrSaveHexColor("RJR_ESP_FruitColor", color)
+    end,
+})
+
+ESPTab:Colorpicker({
+    Title = "Màu Khoảng Cách",
+    Default = rjrHexToColor3(_G.RJR_ESP_DistanceColor),
+    Callback = function(color)
+        rjrSaveHexColor("RJR_ESP_DistanceColor", color)
+    end,
+})
+
+ESPTab:Colorpicker({
+    Title = "Màu Máu",
+    Default = rjrHexToColor3(_G.RJR_ESP_HPColor),
+    Callback = function(color)
+        rjrSaveHexColor("RJR_ESP_HPColor", color)
+    end,
+})
+
+uiControls.RJR_ESP_TextSize = ESPTab:Slider({
+    Title = "Cỡ Chữ ESP",
+    Step = 1,
+    Value = {
+        Min = 8,
+        Max = 32,
+        Default = tonumber(_G.RJR_ESP_TextSize) or 14,
+    },
+    Callback = Bind("RJR_ESP_TextSize"),
+})
+
+if _G.RJR_ESPEnabled then
+    rjrEnableESP()
+end
+
+-- ==========================================
+-- 6C. TAB SHOP (CHUYỂN TỪ SCRIPT RJR)
+-- ==========================================
+local function invokeCommF(args)
+    pcall(function()
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        local commF = remotes and remotes:FindFirstChild("CommF_")
+        if commF then
+            commF:InvokeServer(unpack(args))
+        end
+    end)
+end
+
+ShopTab:Button({
+    Title = "Đặt Lại Chỉ Số",
+    Icon = "refresh-cw",
+    Callback = function()
+        invokeCommF({ "BlackbeardReward", "Refund", "2" })
+    end,
+})
+
+ShopTab:Button({
+    Title = "Đổi Tộc Ngẫu Nhiên",
+    Icon = "shuffle",
+    Callback = function()
+        invokeCommF({ "BlackbeardReward", "Reroll", "2" })
+    end,
+})
+
+ShopTab:Button({
+    Title = "Chuyển Sang Hải Tặc",
+    Icon = "anchor",
+    Callback = function()
+        invokeCommF({ "SetTeam", "Pirates" })
+    end,
+})
+
+ShopTab:Button({
+    Title = "Chuyển Sang Hải Quân",
+    Icon = "shield",
+    Callback = function()
+        invokeCommF({ "SetTeam", "Marines" })
+    end,
+})
+
+ShopTab:Button({
+    Title = "Đổi Tộc Ghoul",
+    Icon = "moon",
+    Callback = function()
+        invokeCommF({ "Ectoplasm", "Change", 4 })
+    end,
+})
+
+ShopTab:Button({
+    Title = "Đổi Tộc Cyborg",
+    Icon = "cpu",
+    Callback = function()
+        invokeCommF({ "CyborgTrainer", "Buy" })
+    end,
+})
+
+-- ==========================================
 -- 7. TARGET SELECTOR, FAST ATTACK, SILENT AIM, HB, KA, ESP
 -- ==========================================
 local FOVCircle = Drawing.new("Circle")
@@ -1247,6 +1909,7 @@ if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "functi
     old = hookmetamethod(game, "__namecall", function(self, ...)
         local method = getnamecallmethod()
         local args = { ... }
+
         local target = getgenv().Capri and getgenv().Capri.CurrentTarget
         if not checkcaller() and (method == "FireServer" or method == "InvokeServer") and target and (_G.SilentAim_Player or _G.SilentAim_NPC) then
             local pred = target.Position + (target.Velocity * _G.PredictionStrength)
