@@ -1,5 +1,3 @@
---// Capri Menu - Updated Super Dash to 200m & Full Features
---// Optimized for Delta Executor
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
@@ -7,134 +5,141 @@ local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local HttpService = game:GetService("HttpService")
-local Camera = workspace.CurrentCamera
+local Workspace = game:GetService("Workspace")
+
+local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Clear menu cũ nếu đang chạy
-if CoreGui:FindFirstChild("CapriMenuGui") then 
-    CoreGui.CapriMenuGui:Destroy() 
+local CONFIG_FILE = "Capri_Combat_V4.json"
+local LEGACY_FILE = "CapriMenuSettings.json"
+
+-- Xóa các nút nổi/vòng Drawing cũ nếu chạy lại script
+if CoreGui:FindFirstChild("CapriFloatingGui") then
+    CoreGui.CapriFloatingGui:Destroy()
+end
+if getgenv().CapriFOVCircle then
+    pcall(function() getgenv().CapriFOVCircle:Remove() end)
+    getgenv().CapriFOVCircle = nil
+end
+if getgenv().CapriESPDrawings then
+    for _, obj in pairs(getgenv().CapriESPDrawings) do
+        pcall(function()
+            if obj.box then obj.box:Remove() end
+            if obj.name then obj.name:Remove() end
+            if obj.line then obj.line:Remove() end
+        end)
+    end
+    getgenv().CapriESPDrawings = {}
 end
 
-local FileName = "CapriMenuSettings.json"
+local Defaults = {
+    -- Tính năng có sẵn trong bản WindUI
+    FastAttackMode = "Mode 2",
+    FastAttackMobs = false,
+    GunM1Mobs = false,
+    AutoV4 = false,
+    Theme = "Dark",
 
-getgenv().Capri = {
+    -- Tính năng chuyển từ Capri Menu cũ
     KA = false,
     ESP = false,
-    HB = false,                
-    SuperHB = false,           
+    HB = false,
+    SuperHB = false,
     CamLock_Player = false,
     SilentAim_Player = false,
-    SilentAim_NPC = false,     
-    FastAttack = false,        
-    V4_Active = false,         
-    LockButtons = false,       
+    SilentAim_NPC = false,
+    FastAttack = false,
+    V4_Active = false,
+    LockButtons = false,
     CamLock_Active = false,
-    ShowZone = false,  
+    ShowZone = false,
     Aim_Active = false,
-    Jump_Active = false,       
-    SuperDash_Active = false,  -- Tính năng Super Dash (~200m)
-    
-    -- 3 chế độ phạm vi Aim (chỉ 1 cái bật tại 1 thời điểm)
-    NormalZone_Active = true,  
-    SuperZone_Active = false,  
-    Aim360 = false,            
-    
-    MinHBSize = 4,     
-    MaxHBSize = 40,    
-    TruckHBSize = 80,  
-    RenderDist = 600,  
-    MaxDist = 700,     
-    
-    FOV = 250,         
+    Jump_Active = false,
+    SuperDash_Active = false,
+    Speed_Active = false,
+    WalkSpeedValue = 35,
+
+    -- 3 chế độ phạm vi Aim
+    NormalZone_Active = true,
+    SuperZone_Active = false,
+    Aim360 = false,
+
+    -- Thông số Combat & Hitbox
+    MinHBSize = 4,
+    MaxHBSize = 40,
+    TruckHBSize = 80,
+    RenderDist = 600,
+    MaxDist = 700,
+    FOV = 250,
     PredictionStrength = 0.165,
     Smoothness = 0.15,
-    CurrentTarget = nil,
-    LockEnabled = false,
-    
-    -- Vị trí mặc định các nút
+
+    -- Vị trí mặc định các nút nổi
     CamBtnPos = {0.88, 0, 0.45, 0},
     AimBtnPos = {0.88, 0, 0.32, 0},
     JumpBtnPos = {0.88, 0, 0.58, 0},
     V4BtnPos = {0.88, 0, 0.71, 0},
     DashBtnPos = {0.78, 0, 0.58, 0},
     ZoneBtnPos = {0.5, 0, 0.5, 0},
-    
-    PlayerTimers = {}
 }
 
-local GUI = Instance.new("ScreenGui")
-GUI.Name = "CapriMenuGui"
-GUI.ResetOnSpawn = false
-
-local success = pcall(function()
-    GUI.Parent = CoreGui
-end)
-if not success then
-    GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+for key, defaultValue in pairs(Defaults) do
+    if _G[key] == nil then
+        _G[key] = defaultValue
+    end
 end
 
--- Khai báo các nút ngoài màn hình trước để load vị trí
-local CamBtn = Instance.new("TextButton", GUI)
-CamBtn.Size = UDim2.new(0, 45, 0, 45)
-CamBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-CamBtn.BackgroundTransparency = 0.5
-CamBtn.Text = "LOCK"
-CamBtn.TextColor3 = Color3.new(1, 1, 1)
-CamBtn.Visible = false
-CamBtn.Font = Enum.Font.GothamBold
-CamBtn.TextSize = 10
-Instance.new("UICorner", CamBtn).CornerRadius = UDim.new(1, 0)
+getgenv().Capri = getgenv().Capri or {
+    CurrentTarget = nil,
+    LockEnabled = false,
+    PlayerTimers = {},
+}
+getgenv().Capri.CurrentTarget = nil
+getgenv().Capri.LockEnabled = false
+getgenv().Capri.PlayerTimers = {}
 
-local AimBtn = Instance.new("TextButton", GUI)
-AimBtn.Size = UDim2.new(0, 45, 0, 45)
-AimBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-AimBtn.BackgroundTransparency = 0.5
-AimBtn.Text = "AIM"
-AimBtn.TextColor3 = Color3.new(1, 1, 1)
-AimBtn.Visible = false
-AimBtn.Font = Enum.Font.GothamBold
-AimBtn.TextSize = 10
-Instance.new("UICorner", AimBtn).CornerRadius = UDim.new(1, 0)
+-- Nút nổi trên màn hình (cho mobile / combat nhanh)
+local FloatGUI = Instance.new("ScreenGui")
+FloatGUI.Name = "CapriFloatingGui"
+FloatGUI.ResetOnSpawn = false
 
-local JumpBtn = Instance.new("TextButton", GUI)
-JumpBtn.Name = "CapriJumpBtn"
-JumpBtn.Size = UDim2.new(0, 45, 0, 45)
-JumpBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-JumpBtn.BackgroundTransparency = 0.5
-JumpBtn.Text = "JUMP"
-JumpBtn.TextColor3 = Color3.new(1, 1, 1)
-JumpBtn.Visible = false
-JumpBtn.Font = Enum.Font.GothamBold
-JumpBtn.TextSize = 10
-Instance.new("UICorner", JumpBtn).CornerRadius = UDim.new(1, 0)
+local parentOk = pcall(function()
+    FloatGUI.Parent = CoreGui
+end)
+if not parentOk then
+    FloatGUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
 
-local V4Btn = Instance.new("TextButton", GUI)
-V4Btn.Name = "CapriV4Btn"
-V4Btn.Size = UDim2.new(0, 45, 0, 45)
-V4Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-V4Btn.BackgroundTransparency = 0.5
-V4Btn.Text = "Y"
-V4Btn.TextColor3 = Color3.fromRGB(0, 255, 128)
-V4Btn.Visible = false
-V4Btn.Font = Enum.Font.GothamBold
-V4Btn.TextSize = 16
-Instance.new("UICorner", V4Btn).CornerRadius = UDim.new(1, 0)
+local function createCircleBtn(name, text, posScale, textColor, textSize)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Parent = FloatGUI
+    btn.Size = UDim2.new(0, 45, 0, 45)
+    btn.Position = UDim2.new(unpack(posScale))
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    btn.BackgroundTransparency = 0.5
+    btn.Text = text
+    btn.TextColor3 = textColor or Color3.new(1, 1, 1)
+    btn.Visible = false
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = textSize or 10
+    btn.ZIndex = 10
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+    return btn
+end
 
-local DashBtn = Instance.new("TextButton", GUI)
-DashBtn.Name = "CapriDashBtn"
-DashBtn.Size = UDim2.new(0, 45, 0, 45)
-DashBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-DashBtn.BackgroundTransparency = 0.5
-DashBtn.Text = "DASH"
-DashBtn.TextColor3 = Color3.fromRGB(0, 200, 255)
-DashBtn.Visible = false
-DashBtn.Font = Enum.Font.GothamBold
-DashBtn.TextSize = 10
-Instance.new("UICorner", DashBtn).CornerRadius = UDim.new(1, 0)
+local CamBtn = createCircleBtn("CapriLockBtn", "LOCK", Defaults.CamBtnPos, Color3.new(1, 1, 1), 10)
+local AimBtn = createCircleBtn("CapriAimBtn", "AIM", Defaults.AimBtnPos, Color3.new(1, 1, 1), 10)
+local JumpBtn = createCircleBtn("CapriJumpBtn", "JUMP", Defaults.JumpBtnPos, Color3.new(1, 1, 1), 10)
+local V4Btn = createCircleBtn("CapriV4Btn", "Y", Defaults.V4BtnPos, Color3.fromRGB(0, 255, 128), 16)
+local DashBtn = createCircleBtn("CapriDashBtn", "DASH", Defaults.DashBtnPos, Color3.fromRGB(0, 200, 255), 10)
 
-local ZoneDragButton = Instance.new("TextButton", GUI)
+local ZoneDragButton = Instance.new("TextButton")
+ZoneDragButton.Name = "CapriZoneBtn"
+ZoneDragButton.Parent = FloatGUI
 ZoneDragButton.Size = UDim2.new(0, 35, 0, 35)
 ZoneDragButton.AnchorPoint = Vector2.new(0.5, 0.5)
+ZoneDragButton.Position = UDim2.new(unpack(Defaults.ZoneBtnPos))
 ZoneDragButton.BackgroundColor3 = Color3.fromRGB(0, 255, 128)
 ZoneDragButton.BackgroundTransparency = 0.6
 ZoneDragButton.Text = "ZONE"
@@ -142,99 +147,79 @@ ZoneDragButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ZoneDragButton.Font = Enum.Font.SourceSansBold
 ZoneDragButton.TextSize = 10
 ZoneDragButton.Visible = false
+ZoneDragButton.ZIndex = 10
 Instance.new("UICorner", ZoneDragButton).CornerRadius = UDim.new(1, 0)
 
--- Hàm tải setting đã lưu
-local function LoadSettings()
-    local success, err = pcall(function()
-        if readfile and isfile and isfile(FileName) then
-            local content = readfile(FileName)
-            local data = HttpService:JSONDecode(content)
-            for k, v in pairs(data) do
-                if getgenv().Capri[k] ~= nil then
-                    getgenv().Capri[k] = v
-                end
+local function applySavedButtonPositions(data)
+    if type(data) ~= "table" then return end
+    if type(data.CamBtnPos) == "table" then CamBtn.Position = UDim2.new(unpack(data.CamBtnPos)) end
+    if type(data.AimBtnPos) == "table" then AimBtn.Position = UDim2.new(unpack(data.AimBtnPos)) end
+    if type(data.JumpBtnPos) == "table" then JumpBtn.Position = UDim2.new(unpack(data.JumpBtnPos)) end
+    if type(data.V4BtnPos) == "table" then V4Btn.Position = UDim2.new(unpack(data.V4BtnPos)) end
+    if type(data.DashBtnPos) == "table" then DashBtn.Position = UDim2.new(unpack(data.DashBtnPos)) end
+    if type(data.ZoneBtnPos) == "table" then ZoneDragButton.Position = UDim2.new(unpack(data.ZoneBtnPos)) end
+end
+
+local function CollectConfig()
+    local data = {}
+    for key in pairs(Defaults) do
+        data[key] = _G[key]
+    end
+    data.CamBtnPos = {CamBtn.Position.X.Scale, CamBtn.Position.X.Offset, CamBtn.Position.Y.Scale, CamBtn.Position.Y.Offset}
+    data.AimBtnPos = {AimBtn.Position.X.Scale, AimBtn.Position.X.Offset, AimBtn.Position.Y.Scale, AimBtn.Position.Y.Offset}
+    data.JumpBtnPos = {JumpBtn.Position.X.Scale, JumpBtn.Position.X.Offset, JumpBtn.Position.Y.Scale, JumpBtn.Position.Y.Offset}
+    data.V4BtnPos = {V4Btn.Position.X.Scale, V4Btn.Position.X.Offset, V4Btn.Position.Y.Scale, V4Btn.Position.Y.Offset}
+    data.DashBtnPos = {DashBtn.Position.X.Scale, DashBtn.Position.X.Offset, DashBtn.Position.Y.Scale, DashBtn.Position.Y.Offset}
+    data.ZoneBtnPos = {ZoneDragButton.Position.X.Scale, ZoneDragButton.Position.X.Offset, ZoneDragButton.Position.Y.Scale, ZoneDragButton.Position.Y.Offset}
+    return data
+end
+
+local function SaveConfig()
+    if typeof(writefile) ~= "function" then return end
+    pcall(function()
+        writefile(CONFIG_FILE, HttpService:JSONEncode(CollectConfig()))
+    end)
+end
+
+local function LoadConfig()
+    if typeof(isfile) ~= "function" or typeof(readfile) ~= "function" then return end
+    local targetFile = nil
+    if isfile(CONFIG_FILE) then
+        targetFile = CONFIG_FILE
+    elseif isfile(LEGACY_FILE) then
+        targetFile = LEGACY_FILE
+    end
+    if not targetFile then return end
+
+    local ok, decoded = pcall(function()
+        return HttpService:JSONDecode(readfile(targetFile))
+    end)
+    if ok and type(decoded) == "table" then
+        for key in pairs(Defaults) do
+            if decoded[key] ~= nil then
+                _G[key] = decoded[key]
             end
-            
-            if data.CamBtnPos then CamBtn.Position = UDim2.new(unpack(data.CamBtnPos)) end
-            if data.AimBtnPos then AimBtn.Position = UDim2.new(unpack(data.AimBtnPos)) end
-            if data.JumpBtnPos then JumpBtn.Position = UDim2.new(unpack(data.JumpBtnPos)) end
-            if data.V4BtnPos then V4Btn.Position = UDim2.new(unpack(data.V4BtnPos)) end
-            if data.DashBtnPos then DashBtn.Position = UDim2.new(unpack(data.DashBtnPos)) end
-            if data.ZoneBtnPos then ZoneDragButton.Position = UDim2.new(unpack(data.ZoneBtnPos)) end
         end
-    end)
+        applySavedButtonPositions(decoded)
+    end
 end
 
-LoadSettings()
+LoadConfig()
 
-CamBtn.Visible = getgenv().Capri.CamLock_Player or getgenv().Capri.CamLock_Active
-AimBtn.Visible = getgenv().Capri.SilentAim_Player or getgenv().Capri.Aim_Active
-AimBtn.BackgroundColor3 = getgenv().Capri.SilentAim_Player and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
-AimBtn.BackgroundTransparency = getgenv().Capri.SilentAim_Player and 0.2 or 0.5
-JumpBtn.Visible = getgenv().Capri.Jump_Active
-V4Btn.Visible = getgenv().Capri.V4_Active
-DashBtn.Visible = getgenv().Capri.SuperDash_Active
-ZoneDragButton.Visible = getgenv().Capri.ShowZone and not getgenv().Capri.Aim360
-
--- Hàm lưu setting
-local function SaveSettings()
-    local success, err = pcall(function()
-        local data = {
-            KA = getgenv().Capri.KA,
-            ESP = getgenv().Capri.ESP,
-            HB = getgenv().Capri.HB,
-            SuperHB = getgenv().Capri.SuperHB,
-            CamLock_Player = getgenv().Capri.CamLock_Player,
-            SilentAim_Player = getgenv().Capri.SilentAim_Player,
-            SilentAim_NPC = getgenv().Capri.SilentAim_NPC,
-            FastAttack = getgenv().Capri.FastAttack,
-            V4_Active = getgenv().Capri.V4_Active,
-            LockButtons = getgenv().Capri.LockButtons,
-            CamLock_Active = getgenv().Capri.CamLock_Active,
-            ShowZone = getgenv().Capri.ShowZone,
-            Aim360 = getgenv().Capri.Aim360,
-            Aim_Active = getgenv().Capri.Aim_Active,
-            Jump_Active = getgenv().Capri.Jump_Active,
-            SuperDash_Active = getgenv().Capri.SuperDash_Active,
-            NormalZone_Active = getgenv().Capri.NormalZone_Active,
-            SuperZone_Active = getgenv().Capri.SuperZone_Active,
-            FOV = getgenv().Capri.FOV,
-            
-            CamBtnPos = {CamBtn.Position.X.Scale, CamBtn.Position.X.Offset, CamBtn.Position.Y.Scale, CamBtn.Position.Y.Offset},
-            AimBtnPos = {AimBtn.Position.X.Scale, AimBtn.Position.X.Offset, AimBtn.Position.Y.Scale, AimBtn.Position.Y.Offset},
-            JumpBtnPos = {JumpBtn.Position.X.Scale, JumpBtn.Position.X.Offset, JumpBtn.Position.Y.Scale, JumpBtn.Position.Y.Offset},
-            V4BtnPos = {V4Btn.Position.X.Scale, V4Btn.Position.X.Offset, V4Btn.Position.Y.Scale, V4Btn.Position.Y.Offset},
-            DashBtnPos = {DashBtn.Position.X.Scale, DashBtn.Position.X.Offset, DashBtn.Position.Y.Scale, DashBtn.Position.Y.Offset},
-            ZoneBtnPos = {ZoneDragButton.Position.X.Scale, ZoneDragButton.Position.X.Offset, ZoneDragButton.Position.Y.Scale, ZoneDragButton.Position.Y.Offset}
-        }
-        if writefile then
-            writefile(FileName, HttpService:JSONEncode(data))
-        end
-    end)
+-- Đồng bộ hiển thị ban đầu của các nút nổi
+local function refreshFloatingVisibility()
+    CamBtn.Visible = _G.CamLock_Player or _G.CamLock_Active
+    AimBtn.Visible = _G.SilentAim_Player or _G.Aim_Active
+    AimBtn.BackgroundColor3 = _G.SilentAim_Player and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
+    AimBtn.BackgroundTransparency = _G.SilentAim_Player and 0.2 or 0.5
+    JumpBtn.Visible = _G.Jump_Active
+    V4Btn.Visible = _G.V4_Active
+    DashBtn.Visible = _G.SuperDash_Active
+    ZoneDragButton.Visible = _G.ShowZone and not _G.Aim360
 end
+refreshFloatingVisibility()
 
--- ==========================================
--- NÚT MỞ MENU VỚI ẢNH ICON
--- ==========================================
-local Toggle = Instance.new("ImageButton", GUI)
-Toggle.Size = UDim2.new(0, 48, 0, 48)
-Toggle.Position = UDim2.new(0.02, 0, 0.12, 0)
-Toggle.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-Toggle.BackgroundTransparency = 0.3
-Toggle.Image = "rbxassetid://2075786475"
-Toggle.Draggable = true
-Toggle.Active = true
-Toggle.BorderColor3 = Color3.fromRGB(0, 255, 128)
-Toggle.BorderSizePixel = 2
-Instance.new("UICorner", Toggle).CornerRadius = UDim.new(1, 0)
-
-local ToggleStroke = Instance.new("UIStroke", Toggle)
-ToggleStroke.Color = Color3.fromRGB(0, 255, 128)
-ToggleStroke.Thickness = 1.5
-ToggleStroke.Transparency = 0.3
-
--- Logic nút V4
+-- Logic nút V4 nổi
 V4Btn.MouseButton1Click:Connect(function()
     pcall(function()
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Y, false, game)
@@ -243,11 +228,13 @@ V4Btn.MouseButton1Click:Connect(function()
     end)
     V4Btn.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
     task.delay(0.15, function()
-        V4Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        if V4Btn then
+            V4Btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        end
     end)
 end)
 
--- Logic nút Super Dash (~200m theo hướng nhìn)
+-- Logic Super Dash (~200m theo hướng nhìn)
 local isDashing = false
 local function doSuperDash()
     if isDashing then return end
@@ -259,7 +246,6 @@ local function doSuperDash()
     DashBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
     DashBtn.BackgroundTransparency = 0.2
 
-    -- Tính hướng lướt phẳng theo hướng nhìn của Camera
     local camLook = Camera.CFrame.LookVector
     local flatDir = Vector3.new(camLook.X, 0, camLook.Z)
     if flatDir.Magnitude > 0.01 then
@@ -268,13 +254,12 @@ local function doSuperDash()
         flatDir = root.CFrame.LookVector
     end
 
-    -- Quãng đường ~200 studs chia làm nhiều bước lướt mượt
     local totalDist = 200
     local steps = 10
     local stepDist = totalDist / steps
 
     task.spawn(function()
-        for i = 1, steps do
+        for _ = 1, steps do
             if root and root.Parent then
                 root.CFrame = root.CFrame + (flatDir * stepDist)
                 root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -282,18 +267,18 @@ local function doSuperDash()
             task.wait(0.015)
         end
         isDashing = false
-        DashBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-        DashBtn.BackgroundTransparency = 0.5
+        if DashBtn then
+            DashBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            DashBtn.BackgroundTransparency = 0.5
+        end
     end)
 end
 
-DashBtn.MouseButton1Click:Connect(function()
-    doSuperDash()
-end)
+DashBtn.MouseButton1Click:Connect(doSuperDash)
 
--- Logic nút Jump
-local jumpPower = 240 
-local repeatSpeed = 0.01 
+-- Logic nút Jump nổi
+local jumpPower = 240
+local repeatSpeed = 0.01
 local holdingJump = false
 
 local function doJump()
@@ -312,32 +297,24 @@ JumpBtn.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
         holdingJump = true
         task.spawn(function()
-            while holdingJump do 
+            while holdingJump do
                 doJump()
-                task.wait(repeatSpeed) 
+                task.wait(repeatSpeed)
             end
         end)
     end
 end)
 
 JumpBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then 
-        holdingJump = false 
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        holdingJump = false
     end
 end)
 
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Visible = false
-FOVCircle.Radius = getgenv().Capri.FOV
-FOVCircle.Filled = false
-FOVCircle.Color = Color3.fromRGB(0, 255, 128)
-FOVCircle.Thickness = 1.5
-FOVCircle.Transparency = 0.8
-
+-- Kéo thả nút Zone & các nút nổi
 local draggingZone = false
-
 ZoneDragButton.MouseButton1Down:Connect(function()
-    if getgenv().Capri.ShowZone and not getgenv().Capri.Aim360 and not getgenv().Capri.LockButtons then
+    if _G.ShowZone and not _G.Aim360 and not _G.LockButtons then
         draggingZone = true
     end
 end)
@@ -349,379 +326,728 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if not getgenv().Capri.LockButtons and draggingZone and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local mousePos = input.Position
-        ZoneDragButton.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
+    if not _G.LockButtons and draggingZone and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        ZoneDragButton.Position = UDim2.new(0, input.Position.X, 0, input.Position.Y)
     end
-end)
-
-local Main = Instance.new("Frame", GUI)
-Main.Size = UDim2.new(0, 420, 0, 220)
-Main.Position = UDim2.new(0.12, 0, 0.20, 0)
-Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-Main.Visible = false
-Main.Draggable = true
-Main.Active = true
-Main.BorderColor3 = Color3.fromRGB(0, 255, 128)
-Main.BorderSizePixel = 2
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
-
-local BGImage = Instance.new("ImageLabel", Main)
-BGImage.Size = UDim2.new(1, 0, 1, 0)
-BGImage.BackgroundTransparency = 1
-BGImage.Image = "rbxassetid://2075594493"
-BGImage.ImageTransparency = 0.4
-BGImage.ZIndex = 0
-Instance.new("UICorner", BGImage).CornerRadius = UDim.new(0, 10)
-
-local Title = Instance.new("TextLabel", Main)
-Title.Size = UDim2.new(0, 110, 0, 40)
-Title.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
-Title.BackgroundTransparency = 0.3
-Title.Text = "CAPRI MENU"
-Title.TextColor3 = Color3.fromRGB(0, 255, 128)
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 14
-Title.ZIndex = 1
-Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 10)
-
-local LockBtnMenu = Instance.new("TextButton", Main)
-LockBtnMenu.Size = UDim2.new(0, 110, 0, 26)
-LockBtnMenu.Position = UDim2.new(0, 0, 0, 43)
-LockBtnMenu.BackgroundColor3 = getgenv().Capri.LockButtons and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
-LockBtnMenu.Text = "Khóa btn: " .. (getgenv().Capri.LockButtons and "ON" or "OFF")
-LockBtnMenu.TextColor3 = getgenv().Capri.LockButtons and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
-LockBtnMenu.Font = Enum.Font.SourceSansSemibold
-LockBtnMenu.TextSize = 11
-LockBtnMenu.ZIndex = 1
-Instance.new("UICorner", LockBtnMenu).CornerRadius = UDim.new(0, 6)
-
-LockBtnMenu.MouseButton1Click:Connect(function()
-    getgenv().Capri.LockButtons = not getgenv().Capri.LockButtons
-    local state = getgenv().Capri.LockButtons
-    LockBtnMenu.Text = "Khóa btn: " .. (state and "ON" or "OFF")
-    LockBtnMenu.TextColor3 = state and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
-    LockBtnMenu.BackgroundColor3 = state and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
-end)
-
-local AntibanLabel = Instance.new("TextLabel", Main)
-AntibanLabel.Size = UDim2.new(0, 110, 0, 25)
-AntibanLabel.Position = UDim2.new(0, 0, 0.78, 0)
-AntibanLabel.BackgroundTransparency = 1
-AntibanLabel.Text = "Antiban: ON"
-AntibanLabel.TextColor3 = Color3.fromRGB(50, 255, 50)
-AntibanLabel.Font = Enum.Font.SourceSansBold
-AntibanLabel.TextSize = 11
-AntibanLabel.ZIndex = 1
-
-local TabHolder = Instance.new("Frame", Main)
-TabHolder.Size = UDim2.new(0, 110, 0, 110)
-TabHolder.Position = UDim2.new(0, 0, 0, 72)
-TabHolder.BackgroundTransparency = 1
-
-local TabListLayout = Instance.new("UIListLayout", TabHolder)
-TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-TabListLayout.Padding = UDim.new(0, 5)
-
-local Container = Instance.new("Frame", Main)
-Container.Size = UDim2.new(0, 280, 0, 190)
-Container.Position = UDim2.new(0, 122, 0, 10)
-Container.BackgroundTransparency = 1
-Container.ZIndex = 1
-
-local ResizeButton = Instance.new("TextButton", Main)
-ResizeButton.Size = UDim2.new(0, 22, 0, 22)
-ResizeButton.AnchorPoint = Vector2.new(1, 1)
-ResizeButton.Position = UDim2.new(1, -2, 1, -2)
-ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 255, 128)
-ResizeButton.Text = "↗"
-ResizeButton.TextColor3 = Color3.fromRGB(20, 20, 25)
-ResizeButton.Font = Enum.Font.SourceSansBold
-ResizeButton.TextSize = 12
-ResizeButton.ZIndex = 2
-Instance.new("UICorner", ResizeButton).CornerRadius = UDim.new(0, 4)
-
-local resizing = false
-ResizeButton.MouseButton1Down:Connect(function()
-    resizing = true
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local currentPos = input.Position
-        local deltaX = currentPos.X - Main.AbsolutePosition.X
-        local deltaY = currentPos.Y - Main.AbsolutePosition.Y
-        
-        local newWidth = math.clamp(deltaX, 350, 650)
-        local newHeight = math.clamp(deltaY, 180, 380)
-        
-        Main.Size = UDim2.new(0, newWidth, 0, newHeight)
-        Container.Size = UDim2.new(0, newWidth - 130, 0, newHeight - 30)
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        resizing = false
-    end
-end)
-
-local Pages = {}
-local TabButtons = {}
-
-local function createTabMenu(tabName)
-    local tabBtn = Instance.new("TextButton", TabHolder)
-    tabBtn.Size = UDim2.new(1, -10, 0, 28)
-    tabBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-    tabBtn.Text = tabName
-    tabBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    tabBtn.Font = Enum.Font.SourceSansBold
-    tabBtn.TextSize = 11
-    Instance.new("UICorner", tabBtn).CornerRadius = UDim.new(0, 6)
-
-    local page = Instance.new("ScrollingFrame", Container)
-    page.Size = UDim2.new(1, 0, 1, 0)
-    page.BackgroundTransparency = 1
-    page.CanvasSize = UDim2.new(0, 0, 0, 250)
-    page.ScrollBarThickness = 3
-    page.Visible = false
-    page.ZIndex = 1
-
-    local grid = Instance.new("UIGridLayout", page)
-    grid.CellSize = UDim2.new(0, 132, 0, 30)
-    grid.CellPadding = UDim2.new(0, 6, 0, 6)
-
-    Pages[tabName] = page
-    TabButtons[tabName] = tabBtn
-
-    tabBtn.MouseButton1Click:Connect(function()
-        local selectedTabName = tabName
-        for name, p in pairs(Pages) do
-            p.Visible = (name == selectedTabName)
-            TabButtons[name].BackgroundColor3 = (name == selectedTabName) and Color3.fromRGB(0, 255, 128) or Color3.fromRGB(35, 35, 45)
-            TabButtons[name].TextColor3 = (name == selectedTabName) and Color3.fromRGB(20, 20, 25) or Color3.fromRGB(200, 200, 200)
-        end
-    end)
-
-    return page
-end
-
-local pvpPage = createTabMenu("PVP")
-local utilityPage = createTabMenu("Nút")
-local superBaKhiPage = createTabMenu("Siêu Bá Khí")
-
-Pages["PVP"].Visible = true
-TabButtons["PVP"].BackgroundColor3 = Color3.fromRGB(0, 255, 128)
-TabButtons["PVP"].TextColor3 = Color3.fromRGB(20, 20, 25)
-
-local menuButtons = {}
-
-local function addBtn(parentPage, name, key, callback)
-    local currentState = getgenv().Capri[key] or false
-    local b = Instance.new("TextButton", parentPage)
-    b.BackgroundColor3 = currentState and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
-    b.Text = name .. (currentState and ": ON" or ": OFF")
-    b.TextColor3 = currentState and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
-    b.Font = Enum.Font.SourceSansSemibold
-    b.TextSize = 11
-    b.ZIndex = 1
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-
-    menuButtons[key] = b
-
-    b.MouseButton1Click:Connect(function()
-        getgenv().Capri[key] = not getgenv().Capri[key]
-        local state = getgenv().Capri[key]
-        b.Text = name .. (state and ": ON" or ": OFF")
-        b.TextColor3 = state and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
-        b.BackgroundColor3 = state and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
-        if callback then callback(state, b) end
-    end)
-    return b
-end
-
--- Tab PVP
-addBtn(pvpPage, "Hitbox", "HB")
-addBtn(pvpPage, "Lock Players", "CamLock_Player", function(v)
-    CamBtn.Visible = v
-end)
-addBtn(pvpPage, "Silent Player", "SilentAim_Player", function(v)
-    AimBtn.Visible = v
-    getgenv().Capri.Aim_Active = v
-    AimBtn.BackgroundColor3 = v and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
-    AimBtn.BackgroundTransparency = v and 0.2 or 0.5
-end)
-addBtn(pvpPage, "Jump", "Jump_Active", function(v)
-    JumpBtn.Visible = v
-end)
-addBtn(pvpPage, "V4", "V4_Active", function(v)
-    V4Btn.Visible = v
-end)
-addBtn(pvpPage, "Super Dash", "SuperDash_Active", function(v)
-    DashBtn.Visible = v
-end)
-
-local normalZoneBtn, superZoneBtn, aim360Btn
-
--- Hàm đồng bộ trạng thái 3 chế độ phạm vi Aim
-local function updateRangeMode(selectedMode)
-    getgenv().Capri.NormalZone_Active = (selectedMode == "Normal")
-    getgenv().Capri.SuperZone_Active = (selectedMode == "Super")
-    getgenv().Capri.Aim360 = (selectedMode == "360")
-
-    local modes = {
-        {btn = normalZoneBtn, name = "Normal Zone", active = getgenv().Capri.NormalZone_Active},
-        {btn = superZoneBtn, name = "Super Zone", active = getgenv().Capri.SuperZone_Active},
-        {btn = aim360Btn, name = "360°", active = getgenv().Capri.Aim360}
-    }
-
-    for _, m in ipairs(modes) do
-        if m.btn then
-            m.btn.Text = m.name .. (m.active and ": ON" or ": OFF")
-            m.btn.TextColor3 = m.active and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
-            m.btn.BackgroundColor3 = m.active and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
-        end
-    end
-
-    if getgenv().Capri.Aim360 then
-        ZoneDragButton.Visible = false
-    else
-        ZoneDragButton.Visible = getgenv().Capri.ShowZone
-    end
-end
-
--- Tab Siêu Bá Khí
-addBtn(superBaKhiPage, "Kill Aura", "KA")
-addBtn(superBaKhiPage, "Hitbox Xe Tải", "SuperHB")
-addBtn(superBaKhiPage, "Aim NPC", "SilentAim_NPC")
-addBtn(superBaKhiPage, "Fast Attack", "FastAttack")
-aim360Btn = addBtn(superBaKhiPage, "360°", "Aim360", function(v)
-    if v then updateRangeMode("360") end
-end)
-
--- Tab Nút (Utility)
-addBtn(utilityPage, "ESP + Distance", "ESP")
-addBtn(utilityPage, "Use Lock Btn", "CamLock_Active", function(v) 
-    CamBtn.Visible = v 
-    if not v then
-        getgenv().Capri.CamLock_Player = false
-    end
-end)
-addBtn(utilityPage, "Zone", "ShowZone", function(v) 
-    ZoneDragButton.Visible = v and not getgenv().Capri.Aim360
-end)
-addBtn(utilityPage, "Aim Btn", "Aim_Active", function(v) 
-    AimBtn.Visible = v 
-    if not v then
-        getgenv().Capri.SilentAim_Player = false
-    end
-end)
-
-normalZoneBtn = addBtn(utilityPage, "Normal Zone", "NormalZone_Active", function(v)
-    if v then updateRangeMode("Normal") end
-end)
-
-superZoneBtn = addBtn(utilityPage, "Super Zone", "SuperZone_Active", function(v)
-    if v then updateRangeMode("Super") end
-end)
-
-if getgenv().Capri.Aim360 then
-    updateRangeMode("360")
-elseif getgenv().Capri.SuperZone_Active then
-    updateRangeMode("Super")
-else
-    updateRangeMode("Normal")
-end
-
-local saveBtn = Instance.new("TextButton", utilityPage)
-saveBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-saveBtn.Text = "Lưu Setting"
-saveBtn.TextColor3 = Color3.fromRGB(0, 255, 128)
-saveBtn.Font = Enum.Font.SourceSansBold
-saveBtn.TextSize = 11
-saveBtn.ZIndex = 1
-Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 6)
-
-saveBtn.MouseButton1Click:Connect(function()
-    SaveSettings()
-    saveBtn.Text = "Đã Lưu!"
-    saveBtn.TextColor3 = Color3.fromRGB(50, 255, 50)
-    task.delay(1, function()
-        saveBtn.Text = "Lưu Setting"
-        saveBtn.TextColor3 = Color3.fromRGB(0, 255, 128)
-    end)
-end)
-
-Toggle.MouseButton1Click:Connect(function()
-    Main.Visible = not Main.Visible
 end)
 
 local function drag(gui)
     local d, s, sp
-    gui.InputBegan:Connect(function(i) 
-        if not getgenv().Capri.LockButtons and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then 
-            d = true; s = i.Position; sp = gui.Position 
-        end 
+    gui.InputBegan:Connect(function(i)
+        if not _G.LockButtons and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            d = true
+            s = i.Position
+            sp = gui.Position
+        end
     end)
-    gui.InputChanged:Connect(function(i) 
-        if not getgenv().Capri.LockButtons and d and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then 
+    gui.InputChanged:Connect(function(i)
+        if not _G.LockButtons and d and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
             local delta = i.Position - s
-            gui.Position = UDim2.new(sp.X.Scale, sp.X.Offset + delta.X, sp.Y.Scale, sp.Y.Offset + delta.Y) 
-        end 
+            gui.Position = UDim2.new(sp.X.Scale, sp.X.Offset + delta.X, sp.Y.Scale, sp.Y.Offset + delta.Y)
+        end
     end)
-    gui.InputEnded:Connect(function() d = false end)
+    gui.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            d = false
+        end
+    end)
 end
+
 drag(CamBtn)
 drag(AimBtn)
 drag(JumpBtn)
 drag(V4Btn)
 drag(DashBtn)
 
+-- Khởi tạo WindUI Window
+local WindUI = loadstring(game:HttpGet("https://rjr-loader.top/script/www"))()
+local themes = WindUI:GetThemes()
+if not themes[_G.Theme] then
+    _G.Theme = "Dark"
+end
+WindUI:SetTheme(_G.Theme)
+
+local Window = WindUI:CreateWindow({
+    Title = "Capri Menu",
+    Author = "Custom Module",
+    Folder = "WindUI",
+    Size = UDim2.fromOffset(520, 380),
+    Theme = _G.Theme,
+    HideSearchBar = true,
+    ToggleKey = Enum.KeyCode.G,
+})
+
+local MainTab = Window:Tab({ Title = "Main" })
+local PvpTab = Window:Tab({ Title = "PVP" })
+local SuperTab = Window:Tab({ Title = "Siêu Bá Khí" })
+local UtilityTab = Window:Tab({ Title = "Nút" })
+
+local uiControls = {}
+
+local function setUIValue(key, value)
+    local ctrl = uiControls[key]
+    if ctrl and type(ctrl.Set) == "function" then
+        ctrl._syncing = true
+        pcall(function()
+            ctrl:Set(value)
+        end)
+        ctrl._syncing = false
+    end
+end
+
+local function Bind(key, callback)
+    return function(value)
+        local ctrl = uiControls[key]
+        _G[key] = value
+        if not (ctrl and ctrl._syncing) and callback then
+            callback(value)
+        end
+        SaveConfig()
+    end
+end
+
+-- Hàm đồng bộ 3 chế độ phạm vi Aim (Normal Zone / Super Zone / 360°)
+local function applyRangeMode(selectedMode)
+    if selectedMode == "360" then
+        _G.Aim360 = true
+        _G.SuperZone_Active = false
+        _G.NormalZone_Active = false
+        _G.FOV = 250
+    elseif selectedMode == "Super" then
+        _G.Aim360 = false
+        _G.SuperZone_Active = true
+        _G.NormalZone_Active = false
+        _G.FOV = 500
+    else
+        _G.Aim360 = false
+        _G.SuperZone_Active = false
+        _G.NormalZone_Active = true
+        _G.FOV = 250
+    end
+
+    setUIValue("NormalZone_Active", _G.NormalZone_Active)
+    setUIValue("SuperZone_Active", _G.SuperZone_Active)
+    setUIValue("Aim360", _G.Aim360)
+    ZoneDragButton.Visible = _G.ShowZone and not _G.Aim360
+    SaveConfig()
+end
+
+-- Bấm nút LOCK nổi
 CamBtn.MouseButton1Click:Connect(function()
     getgenv().Capri.LockEnabled = not getgenv().Capri.LockEnabled
     CamBtn.BackgroundColor3 = getgenv().Capri.LockEnabled and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
     CamBtn.BackgroundTransparency = getgenv().Capri.LockEnabled and 0.2 or 0.5
 end)
 
+-- Bấm nút AIM nổi
 AimBtn.MouseButton1Click:Connect(function()
-    getgenv().Capri.SilentAim_Player = not getgenv().Capri.SilentAim_Player
-    local state = getgenv().Capri.SilentAim_Player
+    _G.SilentAim_Player = not _G.SilentAim_Player
+    local state = _G.SilentAim_Player
     AimBtn.BackgroundColor3 = state and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
     AimBtn.BackgroundTransparency = state and 0.2 or 0.5
-    
-    if menuButtons["SilentAim_Player"] then
-        local b = menuButtons["SilentAim_Player"]
-        b.Text = "Silent Player: " .. (state and "ON" or "OFF")
-        b.TextColor3 = state and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
-        b.BackgroundColor3 = state and Color3.fromRGB(20, 60, 20) or Color3.fromRGB(45, 45, 55)
-    end
+    setUIValue("SilentAim_Player", state)
+    SaveConfig()
 end)
 
---// Target Selector Engine
+-- ==========================================
+-- 1. FAST ATTACK MOBS (MAIN TAB)
+-- ==========================================
+do
+    local M1_RANGE = 500
+    local Net = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net")
+    local RegisterAttack = Net:WaitForChild("RE/RegisterAttack")
+    local RegisterHit = Net:WaitForChild("RE/RegisterHit")
+    local RemoteSeed = Net:FindFirstChild("seed")
+    local State = { FoundRemote = nil, FoundRemoteId = nil }
+
+    task.spawn(function()
+        local folders = {
+            ReplicatedStorage:FindFirstChild("Util"),
+            ReplicatedStorage:FindFirstChild("Common"),
+            ReplicatedStorage:FindFirstChild("Remotes"),
+            ReplicatedStorage:FindFirstChild("Assets"),
+            ReplicatedStorage:FindFirstChild("FX"),
+        }
+        local function inspect(child)
+            if child:IsA("RemoteEvent") and child:GetAttribute("Id") then
+                State.FoundRemote = child
+                State.FoundRemoteId = child:GetAttribute("Id")
+            end
+        end
+        for _, folder in ipairs(folders) do
+            if folder then
+                for _, child in ipairs(folder:GetChildren()) do
+                    inspect(child)
+                end
+                folder.ChildAdded:Connect(inspect)
+            end
+        end
+    end)
+
+    local function GetMobTargets()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local enemies = Workspace:FindFirstChild("Enemies")
+        if not root or not enemies then return {} end
+
+        local list = {}
+        local myPos = root.Position
+        for _, model in ipairs(enemies:GetChildren()) do
+            local tRoot = model:FindFirstChild("HumanoidRootPart")
+            local tHum = model:FindFirstChildOfClass("Humanoid")
+            if tRoot and tHum and tHum.Health > 0 then
+                if (tRoot.Position - myPos).Magnitude < M1_RANGE then
+                    table.insert(list, {
+                        Model = model,
+                        Root = tRoot,
+                        Head = model:FindFirstChild("Head") or tRoot,
+                    })
+                end
+            end
+        end
+        return list
+    end
+
+    local function PerformMobAttack(useEncrypted)
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hasTool = char:FindFirstChildOfClass("Tool") or char:FindFirstChild("EquippedWeapon")
+        if not hasTool then return end
+
+        local targets = GetMobTargets()
+        if #targets == 0 then return end
+
+        local hitList = {}
+        for _, target in ipairs(targets) do
+            table.insert(hitList, { target.Model, target.Root })
+        end
+
+        pcall(function()
+            RegisterAttack:FireServer(0)
+            RegisterHit:FireServer(targets[1].Head, hitList)
+        end)
+
+        if useEncrypted and State.FoundRemote and State.FoundRemoteId then
+            pcall(function()
+                local seedVal = RemoteSeed and RemoteSeed:InvokeServer() or 1
+                local encId = bit32.bxor(State.FoundRemoteId + 909090, seedVal * 2)
+                local rawName = "RE/RegisterHit"
+                local shift = math.floor(Workspace:GetServerTimeNow() / 10 % 10) + 1
+                local encName = string.gsub(rawName, ".", function(c)
+                    return string.char(bit32.bxor(string.byte(c), shift))
+                end)
+                State.FoundRemote:FireServer(encName, encId, targets[1].Head, hitList)
+            end)
+        end
+    end
+
+    task.spawn(function()
+        while true do
+            if not _G.FastAttackMobs then
+                task.wait(0.3)
+                continue
+            end
+            local t0 = tick()
+            pcall(PerformMobAttack, _G.FastAttackMode ~= "Mode 1")
+            task.wait(math.max(0.05 - (tick() - t0), 0.001))
+        end
+    end)
+
+    uiControls.FastAttackMode = MainTab:Dropdown({
+        Title = "Fast Attack Mode",
+        Values = { "Mode 1", "Mode 2" },
+        Value = _G.FastAttackMode,
+        Callback = Bind("FastAttackMode"),
+    })
+
+    uiControls.FastAttackMobs = MainTab:Toggle({
+        Title = "Fast Attack Mobs",
+        Value = _G.FastAttackMobs,
+        Callback = Bind("FastAttackMobs"),
+    })
+end
+
+-- ==========================================
+-- 2. GUN M1 MOBS (MAIN TAB)
+-- ==========================================
+do
+    local Net = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net")
+    local ShootGunEvent = Net:WaitForChild("RE/ShootGunEvent")
+    local Validator2 = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Validator2")
+    local shootFunc, idx, dragonReady = nil, {}, false
+
+    local LIMB_PARTS = {
+        "Head", "UpperTorso", "LowerTorso",
+        "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm",
+        "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg",
+        "HumanoidRootPart",
+    }
+    local VALID_SEA_ENEMIES = {
+        "Terrorshark", "Shark", "Piranha",
+        "Fish Crew Member", "Haunted Crew Member",
+        "FishBoat", "PirateBrigade", "PirateGrandBrigade",
+    }
+
+    local function getRandomLimb(character)
+        if not character then return nil end
+        local parts = {}
+        for _, name in ipairs(LIMB_PARTS) do
+            local p = character:FindFirstChild(name)
+            if p and p:IsA("BasePart") then
+                parts[#parts + 1] = p
+            end
+        end
+        return #parts > 0 and parts[math.random(1, #parts)] or character:FindFirstChild("HumanoidRootPart")
+    end
+
+    local function initDragon()
+        if dragonReady then return end
+        local ok = pcall(function()
+            local cc = require(ReplicatedStorage:WaitForChild("Controllers"):WaitForChild("CombatController"))
+            for _, v in ipairs(debug.getupvalues(cc.Attack)) do
+                if type(v) == "function" then
+                    for i, uv in ipairs(debug.getupvalues(v)) do
+                        if uv == 727595 then
+                            shootFunc = v
+                            idx = {
+                                u25 = i - 3, u21 = i - 2, u24 = i - 1,
+                                u20 = i, u22 = i + 1, u23 = i + 2, u26 = i + 3,
+                            }
+                            break
+                        end
+                    end
+                    if shootFunc then break end
+                end
+            end
+        end)
+        if ok and shootFunc then
+            dragonReady = true
+        end
+    end
+
+    local function fireShot(pos, hit)
+        if not shootFunc then return end
+        local u20 = debug.getupvalue(shootFunc, idx.u20)
+        local u21 = debug.getupvalue(shootFunc, idx.u21)
+        local u22 = debug.getupvalue(shootFunc, idx.u22)
+        local u23 = debug.getupvalue(shootFunc, idx.u23)
+        local u24 = debug.getupvalue(shootFunc, idx.u24)
+        local u25 = debug.getupvalue(shootFunc, idx.u25)
+        local u26 = debug.getupvalue(shootFunc, idx.u26)
+
+        local u79 = u25 * u21
+        local u80 = (u24 * u21 + u25 * u20) % u22
+        u80 = (u80 * u22 + u79) % u23
+        u24 = math.floor(u80 / u22)
+        u25 = u80 - u24 * u22
+        u26 = u26 + 1
+
+        debug.setupvalue(shootFunc, idx.u24, u24)
+        debug.setupvalue(shootFunc, idx.u25, u25)
+        debug.setupvalue(shootFunc, idx.u26, u26)
+
+        Validator2:FireServer(math.floor(u80 / u23 * 16777215), u26)
+        ShootGunEvent:FireServer(pos, { hit })
+    end
+
+    local function getAllPlayerBoatModels()
+        local models = {}
+        local boats = Workspace:FindFirstChild("Boats")
+        if boats then
+            for _, v in ipairs(boats:GetChildren()) do
+                local owner = v:FindFirstChild("Owner")
+                if owner and owner.Value and tostring(owner.Value) ~= "" then
+                    models[v.Name] = true
+                end
+            end
+        end
+        return models
+    end
+
+    local ATTACK_RANGE = 450
+    local function getClosestMobTarget()
+        local char = LocalPlayer.Character
+        local myHRP = char and char:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return nil end
+
+        local best, bestDist = nil, ATTACK_RANGE
+        local playerBoats = getAllPlayerBoatModels()
+
+        local seaBeasts = Workspace:FindFirstChild("SeaBeasts")
+        if seaBeasts then
+            for _, e in ipairs(seaBeasts:GetChildren()) do
+                local hrp = e:FindFirstChild("HumanoidRootPart")
+                local hp = e:FindFirstChild("Health")
+                if hrp and hp and hp:IsA("ValueBase") and hp.Value > 0 then
+                    local seg = e:FindFirstChild("Leviathan Segment")
+                    if seg then
+                        local d = (seg.Position - myHRP.Position).Magnitude
+                        if d < bestDist then bestDist, best = d, seg end
+                    end
+                    local d = (hrp.Position - myHRP.Position).Magnitude
+                    if d < bestDist then
+                        bestDist, best = d, getRandomLimb(e) or hrp
+                    end
+                end
+            end
+        end
+
+        local enemies = Workspace:FindFirstChild("Enemies")
+        if enemies then
+            for _, e in ipairs(enemies:GetChildren()) do
+                if table.find(VALID_SEA_ENEMIES, e.Name) and not playerBoats[e.Name] then
+                    local engine = e:FindFirstChild("Engine")
+                    if engine and e:FindFirstChild("VehicleSeat") then
+                        local hp = e:FindFirstChild("Health")
+                        if hp and hp:IsA("ValueBase") and hp.Value > 0 then
+                            local d = (engine.Position - myHRP.Position).Magnitude
+                            if d < bestDist then bestDist, best = d, engine end
+                        end
+                    else
+                        local hrp = e:FindFirstChild("HumanoidRootPart")
+                        local hum = e:FindFirstChildOfClass("Humanoid")
+                        if hrp and hum and hum.Health > 0 then
+                            local d = (hrp.Position - myHRP.Position).Magnitude
+                            if d < bestDist then
+                                bestDist, best = d, getRandomLimb(e) or hrp
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        local function scanNPC(node, depth)
+            if not node then return end
+            for _, enemy in ipairs(node:GetChildren()) do
+                local eHum = enemy:FindFirstChildOfClass("Humanoid")
+                local eRoot = enemy:FindFirstChild("HumanoidRootPart")
+                if eRoot and eHum and eHum.Health > 0 then
+                    local d = (eRoot.Position - myHRP.Position).Magnitude
+                    if d < bestDist then
+                        bestDist, best = d, getRandomLimb(enemy) or eRoot
+                    end
+                elseif depth < 3 and not enemy:IsA("BasePart") then
+                    scanNPC(enemy, depth + 1)
+                end
+            end
+        end
+
+        scanNPC(Workspace:FindFirstChild("Enemies"), 0)
+        scanNPC(Workspace:FindFirstChild("SeaEvents"), 0)
+        return best
+    end
+
+    task.spawn(function()
+        while not dragonReady do
+            initDragon()
+            task.wait(1)
+        end
+        while task.wait() do
+            if not _G.GunM1Mobs then continue end
+            local char = LocalPlayer.Character
+            local tool = char and char:FindFirstChildOfClass("Tool")
+            if tool and tool.Name == "Dragonstorm" then
+                local target = getClosestMobTarget()
+                if target then
+                    fireShot(target.Position, target)
+                end
+            end
+        end
+    end)
+
+    uiControls.GunM1Mobs = MainTab:Toggle({
+        Title = "Gun M1 Mobs",
+        Value = _G.GunM1Mobs,
+        Callback = Bind("GunM1Mobs"),
+    })
+end
+
+-- ==========================================
+-- 3. AUTO V4 (MAIN TAB)
+-- ==========================================
+do
+    local function TurnOnV4()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local energy = char:FindFirstChild("RaceEnergy")
+        local transformed = char:FindFirstChild("RaceTransformed")
+        if not energy or energy.Value < 1 or not transformed or transformed.Value then
+            return
+        end
+        local awakening = (LocalPlayer.Backpack and LocalPlayer.Backpack:FindFirstChild("Awakening"))
+            or char:FindFirstChild("Awakening")
+        if awakening and awakening:FindFirstChild("RemoteFunction") then
+            pcall(function()
+                awakening.RemoteFunction:InvokeServer(true)
+            end)
+        end
+    end
+
+    task.spawn(function()
+        while true do
+            if _G.AutoV4 then
+                pcall(TurnOnV4)
+            end
+            task.wait(1)
+        end
+    end)
+
+    uiControls.AutoV4 = MainTab:Toggle({
+        Title = "Auto V4",
+        Value = _G.AutoV4,
+        Callback = Bind("AutoV4"),
+    })
+end
+
+-- ==========================================
+-- 4. TAB PVP (SPEED, SLIDER, HB, LOCK, AIM, JUMP, V4 BTN, DASH)
+-- ==========================================
+uiControls.Speed_Active = PvpTab:Toggle({
+    Title = "Speed",
+    Value = _G.Speed_Active,
+    Callback = Bind("Speed_Active", function(v)
+        if not v then
+            local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.WalkSpeed = 16
+            end
+        end
+    end),
+})
+
+uiControls.WalkSpeedValue = PvpTab:Slider({
+    Title = "Tốc chạy",
+    Step = 1,
+    Value = {
+        Min = 16,
+        Max = 150,
+        Default = _G.WalkSpeedValue,
+    },
+    Callback = Bind("WalkSpeedValue"),
+})
+
+uiControls.HB = PvpTab:Toggle({
+    Title = "Hitbox",
+    Value = _G.HB,
+    Callback = Bind("HB"),
+})
+
+uiControls.CamLock_Player = PvpTab:Toggle({
+    Title = "Lock Players",
+    Value = _G.CamLock_Player,
+    Callback = Bind("CamLock_Player", function(v)
+        CamBtn.Visible = v or _G.CamLock_Active
+    end),
+})
+
+uiControls.SilentAim_Player = PvpTab:Toggle({
+    Title = "Silent Player",
+    Value = _G.SilentAim_Player,
+    Callback = Bind("SilentAim_Player", function(v)
+        _G.Aim_Active = v
+        setUIValue("Aim_Active", v)
+        AimBtn.Visible = v or _G.Aim_Active
+        AimBtn.BackgroundColor3 = v and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
+        AimBtn.BackgroundTransparency = v and 0.2 or 0.5
+    end),
+})
+
+uiControls.Jump_Active = PvpTab:Toggle({
+    Title = "Jump",
+    Value = _G.Jump_Active,
+    Callback = Bind("Jump_Active", function(v)
+        JumpBtn.Visible = v
+    end),
+})
+
+uiControls.V4_Active = PvpTab:Toggle({
+    Title = "V4",
+    Value = _G.V4_Active,
+    Callback = Bind("V4_Active", function(v)
+        V4Btn.Visible = v
+    end),
+})
+
+uiControls.SuperDash_Active = PvpTab:Toggle({
+    Title = "Super Dash",
+    Value = _G.SuperDash_Active,
+    Callback = Bind("SuperDash_Active", function(v)
+        DashBtn.Visible = v
+    end),
+})
+
+-- ==========================================
+-- 5. TAB SIÊU BÁ KHÍ
+-- ==========================================
+uiControls.KA = SuperTab:Toggle({
+    Title = "Kill Aura",
+    Value = _G.KA,
+    Callback = Bind("KA"),
+})
+
+uiControls.SuperHB = SuperTab:Toggle({
+    Title = "Hitbox Xe Tải",
+    Value = _G.SuperHB,
+    Callback = Bind("SuperHB"),
+})
+
+uiControls.SilentAim_NPC = SuperTab:Toggle({
+    Title = "Aim NPC",
+    Value = _G.SilentAim_NPC,
+    Callback = Bind("SilentAim_NPC"),
+})
+
+uiControls.FastAttack = SuperTab:Toggle({
+    Title = "Fast Attack",
+    Value = _G.FastAttack,
+    Callback = Bind("FastAttack"),
+})
+
+uiControls.Aim360 = SuperTab:Toggle({
+    Title = "360°",
+    Value = _G.Aim360,
+    Callback = Bind("Aim360", function(v)
+        if v then
+            applyRangeMode("360")
+        else
+            applyRangeMode(_G.SuperZone_Active and "Super" or "Normal")
+        end
+    end),
+})
+
+-- ==========================================
+-- 6. TAB NÚT (UTILITY & LƯU SETTING)
+-- ==========================================
+uiControls.ESP = UtilityTab:Toggle({
+    Title = "ESP + Distance",
+    Value = _G.ESP,
+    Callback = Bind("ESP"),
+})
+
+uiControls.LockButtons = UtilityTab:Toggle({
+    Title = "Khóa btn",
+    Value = _G.LockButtons,
+    Callback = Bind("LockButtons"),
+})
+
+uiControls.CamLock_Active = UtilityTab:Toggle({
+    Title = "Use Lock Btn",
+    Value = _G.CamLock_Active,
+    Callback = Bind("CamLock_Active", function(v)
+        CamBtn.Visible = v or _G.CamLock_Player
+        if not v then
+            _G.CamLock_Player = false
+            setUIValue("CamLock_Player", false)
+        end
+    end),
+})
+
+uiControls.ShowZone = UtilityTab:Toggle({
+    Title = "Zone",
+    Value = _G.ShowZone,
+    Callback = Bind("ShowZone", function(v)
+        ZoneDragButton.Visible = v and not _G.Aim360
+    end),
+})
+
+uiControls.Aim_Active = UtilityTab:Toggle({
+    Title = "Aim Btn",
+    Value = _G.Aim_Active,
+    Callback = Bind("Aim_Active", function(v)
+        AimBtn.Visible = v or _G.SilentAim_Player
+        if not v then
+            _G.SilentAim_Player = false
+            setUIValue("SilentAim_Player", false)
+        end
+    end),
+})
+
+uiControls.NormalZone_Active = UtilityTab:Toggle({
+    Title = "Normal Zone",
+    Value = _G.NormalZone_Active,
+    Callback = Bind("NormalZone_Active", function(v)
+        if v then
+            applyRangeMode("Normal")
+        elseif not _G.SuperZone_Active and not _G.Aim360 then
+            setUIValue("NormalZone_Active", true)
+            _G.NormalZone_Active = true
+        end
+    end),
+})
+
+uiControls.SuperZone_Active = UtilityTab:Toggle({
+    Title = "Super Zone",
+    Value = _G.SuperZone_Active,
+    Callback = Bind("SuperZone_Active", function(v)
+        if v then
+            applyRangeMode("Super")
+        elseif _G.NormalZone_Active then
+            applyRangeMode("Normal")
+        else
+            applyRangeMode("Normal")
+        end
+    end),
+})
+
+UtilityTab:Button({
+    Title = "Lưu Setting",
+    Callback = function()
+        SaveConfig()
+        pcall(function()
+            WindUI:Notify({
+                Title = "Capri Menu",
+                Content = "Đã lưu setting!",
+                Duration = 2,
+            })
+        end)
+    end,
+})
+
+-- Áp dụng chế độ phạm vi ban đầu sau khi tạo toggle
+if _G.Aim360 then
+    applyRangeMode("360")
+elseif _G.SuperZone_Active then
+    applyRangeMode("Super")
+else
+    applyRangeMode("Normal")
+end
+
+-- ==========================================
+-- 7. TARGET SELECTOR, FAST ATTACK, SILENT AIM, HB, KA, ESP
+-- ==========================================
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Radius = _G.FOV
+FOVCircle.Filled = false
+FOVCircle.Color = Color3.fromRGB(0, 255, 128)
+FOVCircle.Thickness = 1.5
+FOVCircle.Transparency = 0.8
+getgenv().CapriFOVCircle = FOVCircle
+
 task.spawn(function()
     while task.wait(0.1) do
-        local C = getgenv().Capri
-        local currentFOV = C.SuperZone_Active and 500 or 250
-        C.FOV = currentFOV
-        
-        local best, shortest = nil, (C.Aim360 and C.MaxDist or C.FOV) 
+        local currentFOV = _G.SuperZone_Active and 500 or 250
+        _G.FOV = currentFOV
+
+        local best, shortest = nil, (_G.Aim360 and _G.MaxDist or _G.FOV)
         local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        
+
         if root then
             local potential = {}
-            for _, p in pairs(Players:GetPlayers()) do 
-                if p ~= LocalPlayer and p.Character then 
-                    table.insert(potential, p.Character) 
-                end 
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and p.Character then
+                    table.insert(potential, p.Character)
+                end
             end
-            
-            if workspace:FindFirstChild("Enemies") then 
-                for _, e in pairs(workspace.Enemies:GetChildren()) do 
-                    table.insert(potential, e) 
-                end 
+
+            if Workspace:FindFirstChild("Enemies") then
+                for _, e in pairs(Workspace.Enemies:GetChildren()) do
+                    table.insert(potential, e)
+                end
             end
-            
-            for _, obj in pairs(workspace:GetChildren()) do
+
+            for _, obj in pairs(Workspace:GetChildren()) do
                 if obj:IsA("Model") and obj ~= LocalPlayer.Character then
                     local hum = obj:FindFirstChildOfClass("Humanoid")
                     local hrp = obj:FindFirstChild("HumanoidRootPart")
@@ -730,18 +1056,19 @@ task.spawn(function()
                     end
                 end
             end
-            
-            local circleCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-            
+
+            local zoneCenter = _G.ShowZone and Vector2.new(ZoneDragButton.AbsolutePosition.X + ZoneDragButton.AbsoluteSize.X / 2, ZoneDragButton.AbsolutePosition.Y + ZoneDragButton.AbsoluteSize.Y / 2)
+                or Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
             for _, char in pairs(potential) do
                 local hPart = char:FindFirstChild("HumanoidRootPart")
                 local hum = char:FindFirstChild("Humanoid")
                 if hPart and hum and hum.Health > 0 then
                     local mag = (hPart.Position - root.Position).Magnitude
-                    if mag <= C.MaxDist then
+                    if mag <= _G.MaxDist then
                         local isNPC = not Players:GetPlayerFromCharacter(char)
-                        if (isNPC and C.SilentAim_NPC) or (not isNPC and (C.SilentAim_Player or C.CamLock_Player)) then
-                            if C.Aim360 then
+                        if (isNPC and _G.SilentAim_NPC) or (not isNPC and (_G.SilentAim_Player or _G.CamLock_Player)) then
+                            if _G.Aim360 then
                                 if mag < shortest then
                                     shortest = mag
                                     best = hPart
@@ -749,8 +1076,8 @@ task.spawn(function()
                             else
                                 local screenPos, onScreen = Camera:WorldToViewportPoint(hPart.Position)
                                 if onScreen then
-                                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - circleCenter).Magnitude
-                                    if screenDist <= C.FOV and screenDist < shortest then
+                                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - zoneCenter).Magnitude
+                                    if screenDist <= _G.FOV and screenDist < shortest then
                                         shortest = screenDist
                                         best = hPart
                                     end
@@ -760,72 +1087,88 @@ task.spawn(function()
                     end
                 end
             end
-            C.CurrentTarget = best
         end
+        getgenv().Capri.CurrentTarget = best
     end
 end)
 
 task.spawn(function()
     while task.wait() do
-        local C = getgenv().Capri
-        if C.FastAttack and LocalPlayer.Character then 
+        if _G.FastAttack and LocalPlayer.Character then
             pcall(function()
-                ReplicatedStorage.Remotes.CommF_:InvokeServer("Attack", {}) 
+                ReplicatedStorage.Remotes.CommF_:InvokeServer("Attack", {})
             end)
         end
     end
 end)
 
-local old
-old = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-    local C = getgenv().Capri
-    if not checkcaller() and (method == "FireServer" or method == "InvokeServer") and C.CurrentTarget and (C.SilentAim_Player or C.SilentAim_NPC) then
-        local pred = C.CurrentTarget.Position + (C.CurrentTarget.Velocity * C.PredictionStrength)
-        for i, v in pairs(args) do
-            if typeof(v) == "Vector3" then 
-                args[i] = pred
-            elseif typeof(v) == "CFrame" then 
-                args[i] = CFrame.new(v.Position, pred) 
+if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+    local old
+    old = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        local target = getgenv().Capri and getgenv().Capri.CurrentTarget
+        if not checkcaller() and (method == "FireServer" or method == "InvokeServer") and target and (_G.SilentAim_Player or _G.SilentAim_NPC) then
+            local pred = target.Position + (target.Velocity * _G.PredictionStrength)
+            for i, v in pairs(args) do
+                if typeof(v) == "Vector3" then
+                    args[i] = pred
+                elseif typeof(v) == "CFrame" then
+                    args[i] = CFrame.new(v.Position, pred)
+                end
             end
         end
-    end
-    return old(self, unpack(args))
-end)
+        return old(self, unpack(args))
+    end)
+end
 
 local lastAuraTick = 0
 local espDrawings = {}
+getgenv().CapriESPDrawings = espDrawings
 
 RunService.RenderStepped:Connect(function()
-    local C = getgenv().Capri
-    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    
-    local shouldShowZone = (C.ShowZone or C.SilentAim_Player or C.SilentAim_NPC) and not C.Aim360
-    FOVCircle.Visible = shouldShowZone
-    FOVCircle.Radius = C.FOV
-    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    
-    ZoneDragButton.Visible = C.ShowZone and not C.Aim360
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
 
-    AimBtn.BackgroundColor3 = C.SilentAim_Player and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
-    AimBtn.BackgroundTransparency = C.SilentAim_Player and 0.2 or 0.5
-    CamBtn.BackgroundTransparency = C.LockEnabled and 0.2 or 0.5
-
-    if C.LockEnabled and C.CurrentTarget then
-        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, C.CurrentTarget.Position), C.Smoothness)
+    -- Áp dụng tốc độ chạy khi bật Speed trong PVP
+    if myHum and myHum.Health > 0 and _G.Speed_Active then
+        myHum.WalkSpeed = _G.WalkSpeedValue
     end
 
-    -- Hitbox Logic với kích thước xe tải siêu to (80) và render distance 600m
+    local shouldShowZone = (_G.ShowZone or _G.SilentAim_Player or _G.SilentAim_NPC) and not _G.Aim360
+    FOVCircle.Visible = shouldShowZone
+    FOVCircle.Radius = _G.FOV
+    if _G.ShowZone then
+        FOVCircle.Position = Vector2.new(
+            ZoneDragButton.AbsolutePosition.X + ZoneDragButton.AbsoluteSize.X / 2,
+            ZoneDragButton.AbsolutePosition.Y + ZoneDragButton.AbsoluteSize.Y / 2
+        )
+    else
+        FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    end
+
+    ZoneDragButton.Visible = _G.ShowZone and not _G.Aim360
+
+    AimBtn.BackgroundColor3 = _G.SilentAim_Player and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(40, 40, 40)
+    AimBtn.BackgroundTransparency = _G.SilentAim_Player and 0.2 or 0.5
+    CamBtn.BackgroundTransparency = getgenv().Capri.LockEnabled and 0.2 or 0.5
+
+    local currentTarget = getgenv().Capri.CurrentTarget
+    if getgenv().Capri.LockEnabled and currentTarget then
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, currentTarget.Position), _G.Smoothness)
+    end
+
+    -- Hitbox Logic
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local hrp = p.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
                 local distToMe = myRoot and (myRoot.Position - hrp.Position).Magnitude or 999
-                
-                if C.SuperHB then
-                    if distToMe <= C.RenderDist then
-                        hrp.Size = Vector3.new(C.TruckHBSize, C.TruckHBSize, C.TruckHBSize)
+
+                if _G.SuperHB then
+                    if distToMe <= _G.RenderDist then
+                        hrp.Size = Vector3.new(_G.TruckHBSize, _G.TruckHBSize, _G.TruckHBSize)
                         hrp.Transparency = 0.4
                         hrp.CanCollide = false
                     else
@@ -833,12 +1176,12 @@ RunService.RenderStepped:Connect(function()
                         hrp.Transparency = 1
                         hrp.CanCollide = false
                     end
-                elseif C.HB then
-                    if distToMe <= C.RenderDist then
+                elseif _G.HB then
+                    if distToMe <= _G.RenderDist then
                         local minD, maxD = 4, 30
                         local alpha = math.clamp((distToMe - minD) / (maxD - minD), 0, 1)
-                        local calculatedSize = C.MinHBSize + (C.MaxHBSize - C.MinHBSize) * alpha
-                        
+                        local calculatedSize = _G.MinHBSize + (_G.MaxHBSize - _G.MinHBSize) * alpha
+
                         hrp.Size = Vector3.new(calculatedSize, calculatedSize, calculatedSize)
                         hrp.Transparency = 0.4
                         hrp.CanCollide = false
@@ -856,14 +1199,15 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    if C.KA then
+    -- Kill Aura
+    if _G.KA then
         if tick() - lastAuraTick >= 2.0 then
             lastAuraTick = tick()
             pcall(function()
                 local char = LocalPlayer.Character
                 local root = char and char:FindFirstChild("HumanoidRootPart")
                 if root then
-                    local searchFolder = workspace:FindFirstChild("Enemies") or workspace
+                    local searchFolder = Workspace:FindFirstChild("Enemies") or Workspace
                     for _, obj in ipairs(searchFolder:GetDescendants()) do
                         if obj:IsA("Model") and obj ~= char then
                             local hum, hrp = obj:FindFirstChildOfClass("Humanoid"), obj:FindFirstChild("HumanoidRootPart")
@@ -873,11 +1217,11 @@ RunService.RenderStepped:Connect(function()
                                     hum:TakeDamage(3387500)
                                 else
                                     local pName = obj.Name
-                                    if not C.PlayerTimers[pName] then
-                                        C.PlayerTimers[pName] = tick()
-                                    elseif tick() - C.PlayerTimers[pName] >= 1.0 then
+                                    if not getgenv().Capri.PlayerTimers[pName] then
+                                        getgenv().Capri.PlayerTimers[pName] = tick()
+                                    elseif tick() - getgenv().Capri.PlayerTimers[pName] >= 1.0 then
                                         hum:TakeDamage(50)
-                                        C.PlayerTimers[pName] = tick()
+                                        getgenv().Capri.PlayerTimers[pName] = tick()
                                     end
                                 end
                             end
@@ -887,10 +1231,11 @@ RunService.RenderStepped:Connect(function()
             end)
         end
     else
-        C.PlayerTimers = {}
+        getgenv().Capri.PlayerTimers = {}
     end
 
-    if C.ESP then
+    -- ESP + Distance
+    if _G.ESP then
         local activeDrawings = {}
         local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
@@ -898,7 +1243,7 @@ RunService.RenderStepped:Connect(function()
             if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                 local hum = p.Character:FindFirstChildOfClass("Humanoid")
                 local hrp = p.Character.HumanoidRootPart
-                
+
                 if hum and hum.Health > 0 then
                     local drawingObj = espDrawings[p]
                     if not drawingObj then
@@ -906,22 +1251,22 @@ RunService.RenderStepped:Connect(function()
                         box.Color = Color3.fromRGB(0, 255, 128)
                         box.Thickness = 1.5
                         box.Filled = false
-                        
+
                         local nameTag = Drawing.new("Text")
                         nameTag.Color = Color3.fromRGB(255, 255, 255)
                         nameTag.Size = 14
                         nameTag.Center = true
                         nameTag.Outline = true
-                        
+
                         local line = Drawing.new("Line")
                         line.Color = Color3.fromRGB(0, 255, 128)
                         line.Thickness = 1
                         line.Transparency = 0.7
-                        
+
                         drawingObj = {box = box, name = nameTag, line = line}
                         espDrawings[p] = drawingObj
                     end
-                    
+
                     activeDrawings[p] = true
                     local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
                     if onScreen then
@@ -929,17 +1274,17 @@ RunService.RenderStepped:Connect(function()
                         drawingObj.box.Size = size
                         drawingObj.box.Position = Vector2.new(pos.X - size.X / 2, pos.Y - size.Y / 2)
                         drawingObj.box.Visible = true
-                        
+
                         local distText = ""
                         if myRoot then
                             local distance = math.floor((myRoot.Position - hrp.Position).Magnitude)
                             distText = " [" .. distance .. "m]"
                         end
 
-                        drawingObj.name.Text = p.Name .. " [" .. math.floor(hum.Health) + 0 .. " HP]" .. distText
+                        drawingObj.name.Text = p.Name .. " [" .. math.floor(hum.Health) .. " HP]" .. distText
                         drawingObj.name.Position = Vector2.new(pos.X, pos.Y - size.Y / 2 - 20)
                         drawingObj.name.Visible = true
-                        
+
                         drawingObj.line.From = screenCenter
                         drawingObj.line.To = Vector2.new(pos.X, pos.Y)
                         drawingObj.line.Visible = true
@@ -967,5 +1312,6 @@ RunService.RenderStepped:Connect(function()
             obj.line:Remove()
         end
         espDrawings = {}
+        getgenv().CapriESPDrawings = espDrawings
     end
 end)
